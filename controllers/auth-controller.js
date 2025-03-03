@@ -86,7 +86,18 @@ exports.login = async(req, res, next) =>{
 
 exports.getMe = async (req, res, next) => {
     try {
-      res.json({ message: "Hello, current user" });
+        const {id} = req.user
+        console.log("checkkkk", req.user)
+        const employees = await prisma.employees.findUnique({
+            where:{
+                id: id,
+            },
+            select:{
+                role:true
+            }
+        })
+        console.log(employees)
+        res.json({result: employees});
     } catch (error) {
       next(error);
     }

@@ -2,10 +2,14 @@ const express = require('express')
 const router = express.Router()
 const userController = require('../controllers/user-controller')
 
+const {authenticate} = require('../middleware/authenticate')
+const {upload} = require('../middleware/upload')
 
-router.get('/user',userController.listUsers)
-router.patch('/user/update-role',userController.updateRole)
-router.delete('/user/:id',userController.deleteUser)    
+
+//user-route
+router.patch('/user/upload-img/:id',authenticate,upload,userController.uploadImg)
+router.patch('/user/update-phone/:id',authenticate,userController.updatePhone)  
+router.patch('/user/update-EM/:id',authenticate,userController.updateEmergency)
 
 
 
