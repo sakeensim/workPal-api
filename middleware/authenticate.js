@@ -20,7 +20,7 @@ exports.authenticate = (req,res,next)=>{
             if(err){
                 return createError(401, "Unauthorized")
             }
-            console.log(decode)
+            // console.log(decode)
             //สร้าง property user ให้เท่ากับ decode (ข้อมูล user จาก Token)
             req.user = decode
             next()
