@@ -64,10 +64,12 @@ exports.login = async(req, res, next) =>{
         //3. Grnerate Token
         const payload = {
             id: employees.id,
-            // email : employees.email,
-            // password: employees.password,
-            // firstname: employees.firstname,
-            // lastname: employees.lastname,
+            email : employees.email,
+            firstname: employees.firstname,
+            lastname: employees.lastname,
+            profile: employees.profileImage,
+            phone: employees.phone,
+            emergencyContact: employees.emergencyContact,
             role: employees.role,
         }
         const token = jwt.sign(payload, process.env.SECRET,{
@@ -92,8 +94,8 @@ exports.getMe = async (req, res, next) => {
             where:{
                 id: id,
             },
-            select:{
-                role:true
+           omit:{
+                password:true
             }
         })
         console.log(employees)

@@ -14,20 +14,23 @@ datasource db {
 }
 
 model Employees {
-  id           Int             @id @default(autoincrement())
-  email        String          @unique
-  firstname    String
-  lastname     String
-  password     String
-  profileImage String?
-  baseSalary   String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  role         Role            @default(USER)
-  timetracking TimeTracking[]
-  dayOff       DayOff[]
-  advanceSalar AdvanceSalary[]
-  salaryRecord SalaryRecord[]
+  id               Int             @id @default(autoincrement())
+  email            String          @unique
+  firstname        String
+  lastname         String
+  phone            String?
+  emergencyContact String?
+  password         String
+  profileImage     String?
+  publicId         String?
+  baseSalary       String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  role             Role            @default(USER)
+  timetracking     TimeTracking[]
+  dayOff           DayOff[]
+  advanceSalar     AdvanceSalary[]
+  salaryRecord     SalaryRecord[]
 }
 
 enum Role {
@@ -76,7 +79,7 @@ model AdvanceSalary {
 
 model SalaryRecord {
   id           Int        @id @default(autoincrement())
-  month        DateTime   @default(now()) 
+  month        DateTime   @default(now())
   baseSlary    Decimal    @db.Decimal(10, 2)
   advanceTaken Decimal    @db.Decimal(10, 2)
   finalSalary  Decimal    @db.Decimal(10, 2)

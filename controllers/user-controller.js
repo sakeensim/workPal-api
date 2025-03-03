@@ -1,3 +1,4 @@
+const cloudinary = require("../configs/cloudinary")
 const prisma = require("../configs/prisma")
 
 //1. list all users
@@ -51,25 +52,57 @@ exports.deleteUser = async (req, res, next) => {
 //4. edite image profile
 exports.uploadImg = async(req,res,next)=>{
     try {
+        // console.log(req.body.image)
+        //ส่งไปรูป cloudinary
+        const result = await cloudinary.uploader.upload(req.body.image,{
+            folder: 'profile',
+            public_id: Date.now().toString(),
+
+        })
+        console.log(result)
+        res.json({result})
+    } catch (error) {
+        next(error)
+    }
+}
+
+//update Profil
+exports.updateProfile = async(req,res,next)=>{
+    try {
+        console.log(req.body)
+        //ลง database
+        const {id} = req.params
+        const {phone,emergencyContact,image} = req.body
+  
+        await prisma.employees.update({
+            where: { id: Number(id) },
+            data: { 
+                phone: phone,
+                emergencyContact: emergencyContact,
+                profileImage : image?.secure_url,
+                publicId: image?.public_id
+            },
+        })
+        res.json({message: 'Update Profile Success'})
+    } catch (error) {
+        next(error)
         
-        res.json({message: 'Upload Success'})
-    } catch (error) {
-        next(error)
     }
 }
-//5. edite Phone number
-exports.updatePhone = async(req,res,next)=>{
-    try {
-        res.json({message: 'Update Phone Number Success'})
-    } catch (error) {
-        next(error)
-    }
+
+exports.myProfile = async(req,res,next)=>{
+try {
+    const {id} =req.user
+    const profile = await prisma.employees.findFirst({
+        where : {
+            id : Number(id)
+        },
+        omit:{
+            password:true,
+        }
+})
+    res.json({result : profile})
+} catch (error) {
+    next(error)
 }
-//6. edite Emergrncy contact
-exports.updateEmergency = async(req,res,next)=>{
-    try {
-        res.json({message: 'Update EM Success'})
-    } catch (error) {
-        next(error)
-    }
 }
