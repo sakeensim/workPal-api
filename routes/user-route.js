@@ -15,5 +15,8 @@ router.get('/user/myProfile',authenticate,userController.myProfile)
 //Check-In 
 router.post('/user/check-in',authenticate,timeController.checkIn)
 
+//check-out
+router.patch('/user/check-out',authenticate,timeController.checkOut)
+
 
 module.exports = router

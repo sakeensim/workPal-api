@@ -17,7 +17,30 @@ exports.checkIn = async(req,res,next)=>{
 
     res.json({ 
         message: "Check-in successful" ,
-        data: currentTime
+        data: timeTrackingRecord
+    });
+    } catch (error) {
+        next(error)
+    }
+}
+
+exports.checkOut = async(req,res,next)=>{
+    try {
+        console.log("Request",req.body)
+        const timeId = req.body.id;
+        const currentTime = new Date()
+  
+    const timeTrackingRecord = await prisma.timeTracking.update({
+      data: {
+        checkOut: currentTime,
+      },
+      where:{
+        id : timeId
+      }
+    });
+    res.json({ 
+        message: "Check-out successful" ,
+        data: timeTrackingRecord
     });
     } catch (error) {
         next(error)
