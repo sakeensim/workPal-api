@@ -26,8 +26,11 @@ exports.checkIn = async(req,res,next)=>{
 
 exports.checkOut = async(req,res,next)=>{
     try {
-        console.log("Request",req.body)
+        
+      console.log("Request from check out",req.body)
         const timeId = req.body.id;
+
+
         const currentTime = new Date()
   
     const timeTrackingRecord = await prisma.timeTracking.update({
