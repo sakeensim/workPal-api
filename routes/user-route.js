@@ -18,5 +18,6 @@ router.post('/user/check-in',authenticate,timeController.checkIn)
 //check-out
 router.patch('/user/check-out',authenticate,timeController.checkOut)
 
-
+//Day-Off
+router.post('/user/day-off',authenticate,timeController.dayOff)
 module.exports = router

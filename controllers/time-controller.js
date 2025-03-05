@@ -49,3 +49,15 @@ exports.checkOut = async(req,res,next)=>{
         next(error)
     }
 }
+
+exports.dayOff=async(res, req,next)=>{
+  try {
+    // const userId = req.user.id;
+    
+    res.json({
+      message: "Day-Off was booked"
+    })
+  } catch (error) {
+    next(error)
+  }
+}
