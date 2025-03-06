@@ -50,12 +50,27 @@ exports.checkOut = async(req,res,next)=>{
     }
 }
 
-exports.dayOff=async(res, req,next)=>{
+exports.dayOff=async(req,res,next)=>{
   try {
-    // const userId = req.user.id;
-    
+
+    const { date, reason, status } = req.body;
+    const employeesId = req.user.id; 
+
+    const validStatus = status || 'PENDING';
+
+    const dayOff = await prisma.dayOff.create({
+      data: {
+        date: new Date(date),
+        reason,
+        status: validStatus, // This needs to match one of your enum values
+        employeesId: employeesId // Match the field name in your schema
+      }
+    })
+    console.log('Request for day off:', dayOff)
+
     res.json({
-      message: "Day-Off was booked"
+      message: "Day-Off was booked",
+      data: dayOff
     })
   } catch (error) {
     next(error)
