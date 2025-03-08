@@ -4,6 +4,7 @@ const userController = require('../controllers/user-controller')
 const timeController = require('../controllers/time-controller')
 
 const {authenticate} = require('../middleware/authenticate')
+const { salaryAdvance } = require('../controllers/salary-controller')
 
 
 
@@ -20,4 +21,7 @@ router.patch('/user/check-out',authenticate,timeController.checkOut)
 
 //Day-Off
 router.post('/user/day-off',authenticate,timeController.dayOff)
+
+//Advance Salart
+router.post('/user/advance-salary',authenticate,salaryAdvance)
 module.exports = router
