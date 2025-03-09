@@ -19,7 +19,7 @@ app.use(express.json({limit:"10mb"}))
 // Routing
 app.use('/', authRouter)
 app.use('/', userRouter)
-app.use('/admin', adminRouter)
+app.use('/', adminRouter)
 
 
 //Error

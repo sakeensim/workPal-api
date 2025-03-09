@@ -1,8 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
   provider = "prisma-client-js"
@@ -29,7 +25,7 @@ model Employees {
   role             Role            @default(USER)
   timetracking     TimeTracking[]
   dayOff           DayOff[]
-  advanceSalar     AdvanceSalary[]
+  advanceSalary     AdvanceSalary[]
   salaryRecord     SalaryRecord[]
 }
 
@@ -44,7 +40,7 @@ model TimeTracking {
   checkOut DateTime? @db.Timestamp(0)
   date     DateTime  @default(now())
 
-  Employees   Employees? @relation(fields: [employeesId], references: [id])
+  employees   Employees? @relation(fields: [employeesId], references: [id])
   employeesId Int?
 }
 
@@ -56,7 +52,7 @@ model DayOff {
   updatedAt DateTime @updatedAt @db.Timestamp(0)
   status    Status   @default(PENDING)
 
-  Employees   Employees? @relation(fields: [employeesId], references: [id])
+  employees   Employees? @relation(fields: [employeesId], references: [id])
   employeesId Int?
 }
 
@@ -83,6 +79,6 @@ model SalaryRecord {
   baseSlary    Decimal    @db.Decimal(10, 2)
   advanceTaken Decimal    @db.Decimal(10, 2)
   finalSalary  Decimal    @db.Decimal(10, 2)
-  Employees    Employees? @relation(fields: [employeesId], references: [id])
+  employees    Employees? @relation(fields: [employeesId], references: [id])
   employeesId  Int?
 }
