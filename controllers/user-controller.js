@@ -2,7 +2,7 @@ const cloudinary = require("../configs/cloudinary")
 const prisma = require("../configs/prisma")
 
 //1. list all users
-    exports.listUsers = async(req,res,next)=>{
+exports.listUsers = async(req,res,next)=>{
         try {
             const users = await prisma.employees.findMany({
                 // ไม่ส่ง password
@@ -106,3 +106,59 @@ try {
     next(error)
 }
 }
+
+//update approved status
+exports.getUserApprovedRequests = async (req, res, next) => {
+    try {
+        console.log("Fetching approved requests for user:", req.user);
+        const userId = req.user.id;
+
+        // Get approved advance salary requests
+        const approvedSalaryRequests = await prisma.advanceSalary.findMany({
+            where: { employeesId: userId, status: 'APPROVED' },
+            orderBy: { requestDate: 'desc' }
+        });
+
+        // Calculate total approved salary sum
+        const totalApprovedSalary = approvedSalaryRequests.reduce((sum, req) => sum + Number(req.amount), 0);
+
+        // Get approved day-off requests
+        const approvedDayOffRequests = await prisma.dayOff.findMany({
+            where: { employeesId: userId, status: 'APPROVED' },
+            orderBy: { date: 'desc' }
+        });
+
+        // Format the response
+        const formattedSalaryRequests = approvedSalaryRequests.map(req => ({
+            id: req.id,
+            type: 'salary',
+            amount: req.amount,
+            requestDate: req.requestDate,
+            status: req.status,
+            createdAt: req.createdAt,
+            updatedAt: req.updatedAt
+        }));
+
+        const formattedDayOffRequests = approvedDayOffRequests.map(req => ({
+            id: req.id,
+            type: 'dayoff',
+            reason: req.reason,
+            date: req.date,
+            status: req.status,
+            createdAt: req.createdAt,
+            updatedAt: req.updatedAt
+        }));
+
+        const allApprovedRequests = [...formattedSalaryRequests, ...formattedDayOffRequests];
+
+        // Sort by most recent updates
+        allApprovedRequests.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+        console.log('Approved Requests:', allApprovedRequests);
+
+        res.json({ data: allApprovedRequests, totalSalaryAdvance: totalApprovedSalary });
+    } catch (error) {
+        console.error("Error in getUserApprovedRequests:", error);
+        next(error);
+    }
+};

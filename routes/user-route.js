@@ -13,6 +13,9 @@ router.patch('/user/upload-img',authenticate,userController.uploadImg)
 router.patch('/user/update-profile/:id',authenticate,userController.updateProfile)  
 router.get('/user/myProfile',authenticate,userController.myProfile)
 
+//user's approved requests
+router.get('/user/approved-requests',authenticate,userController.getUserApprovedRequests)
+
 //Check-In 
 router.post('/user/check-in',authenticate,timeController.checkIn)
 
@@ -25,3 +28,5 @@ router.post('/user/day-off',authenticate,timeController.dayOff)
 //Advance Salart
 router.post('/user/advance-salary',authenticate,salaryAdvance)
 module.exports = router
+
+

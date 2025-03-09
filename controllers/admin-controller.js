@@ -76,7 +76,8 @@ exports.approveSalaryRequest = async (req, res, next) => {
 
     const updatedRequest = await prisma.advanceSalary.update({
       where: { id: parseInt(id) },
-      data: { status: 'APPROVED' }
+      data: { status: 'APPROVED' },
+      include:{ employees: true} // Include employee info for notification
     });
 
     res.json({
@@ -126,7 +127,8 @@ exports.approveDayOffRequest = async (req, res, next) => {
 
     const updatedRequest = await prisma.dayOff.update({
       where: { id: parseInt(id) },
-      data: { status: 'APPROVED' }
+      data: { status: 'APPROVED' },
+      include: {employees: true}
     });
 
     res.json({
