@@ -43,14 +43,14 @@ exports.getPendingRequests = async (req, res, next) => {
       id: req.id,
       type: 'dayoff',
       reason: req.reason,
-      startDate: req.startDate,
-      endDate: req.endDate,
+      startDate: req.date,
+      endDate: req.date,
       status: req.status,
-      employee: req.user ? {
-        id: req.user.id,
-        firstName: req.user.firstName,
-        lastName: req.user.lastName,
-        profileImage: req.user.profileImage
+      employee: req.employees ? { // Changed from req.user to req.employees to match the relation
+        id: req.employees.id,
+        firstName: req.employees.firstName,
+        lastName: req.employees.lastName,
+        profileImage: req.employees.profileImage
       } : null
     }));
 
@@ -79,7 +79,7 @@ exports.approveSalaryRequest = async (req, res, next) => {
       data: { status: 'APPROVED' }
     });
 
-    res.json({ 
+    res.json({
       message: "Advance salary request approved successfully",
       data: updatedRequest
     });
@@ -104,7 +104,7 @@ exports.rejectSalaryRequest = async (req, res, next) => {
       data: { status: 'REJECTED' }
     });
 
-    res.json({ 
+    res.json({
       message: "Advance salary request rejected",
       data: updatedRequest
     });
@@ -129,7 +129,7 @@ exports.approveDayOffRequest = async (req, res, next) => {
       data: { status: 'APPROVED' }
     });
 
-    res.json({ 
+    res.json({
       message: "Day-off request approved successfully",
       data: updatedRequest
     });
@@ -154,7 +154,7 @@ exports.rejectDayOffRequest = async (req, res, next) => {
       data: { status: 'REJECTED' }
     });
 
-    res.json({ 
+    res.json({
       message: "Day-off request rejected",
       data: updatedRequest
     });
