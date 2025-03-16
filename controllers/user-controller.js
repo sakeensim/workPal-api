@@ -8,6 +8,9 @@ exports.listUsers = async(req,res,next)=>{
                 // ไม่ส่ง password
                 omit:{
                     password: true,
+                },
+                orderBy: {
+                    firstname: 'asc'
                 }
             })
             console.log(users)
@@ -162,3 +165,18 @@ exports.getUserApprovedRequests = async (req, res, next) => {
         next(error);
     }
 };
+exports.updateBaseSalary = async(req,res,next)=>{
+    try {
+        const {id} = req.params;
+        const {baseSalary} = req.body;
+        
+        await prisma.employees.update({
+            where: { id: Number(id) },
+            data: { baseSalary: baseSalary.toString() }
+        });
+        
+        res.json({message: 'Salary updated successfully'});
+    } catch (error) {
+        next(error);
+    }
+}

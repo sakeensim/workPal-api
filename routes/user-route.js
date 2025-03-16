@@ -27,6 +27,10 @@ router.post('/user/day-off',authenticate,timeController.dayOff)
 
 //Advance Salart
 router.post('/user/advance-salary',authenticate,salaryAdvance)
+
+
+//delete dayoff
+router.delete('/user/cancel-dayoff/:id', authenticate,timeController.deleteDayOff)
 module.exports = router
 
 

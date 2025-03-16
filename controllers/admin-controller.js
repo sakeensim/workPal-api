@@ -46,7 +46,7 @@ exports.getPendingRequests = async (req, res, next) => {
       startDate: req.date,
       endDate: req.date,
       status: req.status,
-      employee: req.employees ? { // Changed from req.user to req.employees to match the relation
+      employee: req.employees ? { 
         id: req.employees.id,
         firstName: req.employees.firstName,
         lastName: req.employees.lastName,

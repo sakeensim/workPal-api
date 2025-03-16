@@ -1,5 +1,3 @@
-
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -19,14 +17,15 @@ model Employees {
   password         String
   profileImage     String?
   publicId         String?
-  baseSalary       String?
+  baseSalary       Int?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   role             Role            @default(USER)
   timetracking     TimeTracking[]
   dayOff           DayOff[]
-  advanceSalary     AdvanceSalary[]
+  advanceSalary    AdvanceSalary[]
   salaryRecord     SalaryRecord[]
+  remainingDayOffs Int             @default(0)
 }
 
 enum Role {
