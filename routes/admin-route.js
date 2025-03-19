@@ -17,6 +17,11 @@ router.patch('/user/update-salary/:id', authenticate, adminAuth, userController.
 // Get all pending requests
 router.get('/admin/pending-requests', authenticate, adminController.getPendingRequests);
 
+//Get all timetracking
+router.get('/admin/Work-time-record',authenticate,adminAuth,adminController.getTimetracking)
+router.get('/admin/employees', authenticate, adminAuth, userController.listUsers);
+
+
 // Salary advance approval routes
 router.patch('/admin/salary-approve/:id', authenticate, adminController.approveSalaryRequest);
 router.patch('/admin/salary-reject/:id', authenticate, adminController.rejectSalaryRequest);
@@ -25,7 +30,12 @@ router.patch('/admin/salary-reject/:id', authenticate, adminController.rejectSal
 router.patch('/admin/dayoff-approve/:id', authenticate, adminController.approveDayOffRequest);
 router.patch('/admin/dayoff-reject/:id', authenticate, adminController.rejectDayOffRequest);
 
+
 router.patch('/admin/update-salary',authenticate,salaryController.updateSalary)
+
+router.get('/admin/dashboard', authenticate, adminAuth, adminController.getEmployeesDashboard);
+
+// router.post('/admin/salary/:employeeId/:year/:month', authenticate,adminController.updateSalaryRecord);
 
 
 module.exports = router

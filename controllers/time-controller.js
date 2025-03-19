@@ -1,81 +1,103 @@
 
 const prisma = require("../configs/prisma")
 
-exports.checkIn = async(req,res,next)=>{
-    try {
-        const userId = req.user.id;
-        const currentTime = new Date()
-  
-
-    // Create a new TimeTracking record
-    const timeTrackingRecord = await prisma.timeTracking.create({
-      data: {
-        employeesId: userId,
-        checkIn: currentTime,
-      },
-    });
-
-    res.json({ 
-        message: "Check-in successful" ,
-        data: timeTrackingRecord
-    });
-    } catch (error) {
-        next(error)
-    }
-}
-
-exports.checkOut = async(req,res,next)=>{
-    try {
-        
-      console.log("Request from check out",req.body)
-        const timeId = req.body.id;
-
-
-        const currentTime = new Date()
-  
-    const timeTrackingRecord = await prisma.timeTracking.update({
-      data: {
-        checkOut: currentTime,
-      },
-      where:{
-        id : timeId
-      }
-    });
-    res.json({ 
-        message: "Check-out successful" ,
-        data: timeTrackingRecord
-    });
-    } catch (error) {
-        next(error)
-    }
-}
-
-exports.dayOff=async(req,res,next)=>{
+exports.checkIn = async (req, res, next) => {
   try {
+      const userId = req.user.id;
+      const currentTime = new Date();
 
+      console.log("Check-in request received for user:", userId); // Debugging log
+
+      const timeTrackingRecord = await prisma.timeTracking.create({
+          data: {
+              employeesId: userId,
+              checkIn: currentTime,
+          },
+      });
+
+      console.log("Check-in successful:", timeTrackingRecord);
+      res.json({ 
+          message: "Check-in successful",
+          data: timeTrackingRecord
+      });
+
+  } catch (error) {
+      console.error("❌ Check-in error:", error); // ADD THIS TO SEE ERROR IN LOGS
+      res.status(500).json({ message: "Internal Server Error", error });
+  }
+};
+
+
+exports.checkOut = async (req, res, next) => {
+  try {
+      console.log("Request from check out", req.body); // Log to check if ID exists
+
+      const timeId = req.body.id;
+      if (!timeId) {
+          return res.status(400).json({ message: "Time ID is required for check-out" });
+      }
+
+      const currentTime = new Date();
+
+      const timeTrackingRecord = await prisma.timeTracking.update({
+          data: {
+              checkOut: currentTime,
+          },
+          where: {
+              id: timeId, // Make sure this is correctly assigned
+          },
+      });
+
+      res.json({
+          message: "Check-out successful",
+          data: timeTrackingRecord,
+      });
+  } catch (error) {
+      console.error("Error from middleware", error);
+      next(error);
+  }
+};
+
+exports.dayOff = async (req, res, next) => {
+  try {
     const { date, reason, status } = req.body;
-    const employeesId = req.user.id; 
+    const employeesId = req.user.id;
 
+    // Ensure date is valid
+    const currentDate = new Date();
+    const requestDate = new Date(date);
+
+    // Validate if the selected date is in the future
+    if (requestDate < currentDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot request a day off for a past date",
+      });
+    }
+
+    // Set status to 'PENDING' if it's not provided
     const validStatus = status || 'PENDING';
 
+    // Create the day off request in the database
     const dayOff = await prisma.dayOff.create({
       data: {
-        date: new Date(date),
+        date: requestDate,  // Ensure date is correctly formatted
         reason,
-        status: validStatus, // This needs to match one of your enum values
-        employeesId: employeesId // Match the field name in your schema
-      }
-    })
-    console.log('Request for day off:', dayOff)
+        status: validStatus,  // Ensure valid status is used
+        employeesId,  // Use employee's ID for linking
+      },
+    });
+
+    console.log('Day off request:', dayOff);
 
     res.json({
-      message: "Day-Off was booked",
-      data: dayOff
-    })
+      message: "Day off was successfully booked",
+      data: dayOff,
+    });
   } catch (error) {
-    next(error)
+    next(error);
   }
-}
+};
 
 
 // delete DayOff
