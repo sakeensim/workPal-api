@@ -19,7 +19,7 @@ router.get('/admin/pending-requests', authenticate, adminController.getPendingRe
 
 //Get all timetracking
 router.get('/admin/Work-time-record',authenticate,adminAuth,adminController.getTimetracking)
-router.get('/admin/employees', authenticate, adminAuth, userController.listUsers);
+router.get('/admin/getemployee', authenticate, adminAuth, userController.listUsers);
 
 
 // Salary advance approval routes

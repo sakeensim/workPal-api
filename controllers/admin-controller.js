@@ -340,8 +340,8 @@ exports.getTimetracking = async (req, res, next) => {
     
     return res.status(200).json({
       success: true,
-      data: summaryArray,
-      message: 'Time records summary fetched successfully'
+      data: timeRecords, // Send the full records array instead of the summary
+      message: 'All time records fetched successfully'
     });
 
     
