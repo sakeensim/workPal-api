@@ -176,35 +176,26 @@ exports.getEmployeesDashboard = async (req, res, next) => {
     
     // Create date objects for the start and end of the month
     const startDate = new Date(dashboardYear, dashboardMonth - 1, 1);
-    const endDate = new Date(dashboardYear, dashboardMonth, 0); // Last day of the month
-    
+    const endDate = new Date(dashboardYear, dashboardMonth, 0);
+
     // Get all employees
     const employees = await prisma.employees.findMany({
       include: {
         dayOff: {
           where: {
-            date: {
-              gte: startDate,
-              lte: endDate,
-            },
+            date: { gte: startDate, lte: endDate },
             status: 'APPROVED',
           },
         },
         advanceSalary: {
           where: {
-            requestDate: {
-              gte: startDate,
-              lte: endDate,
-            },
+            requestDate: { gte: startDate, lte: endDate },
             status: 'APPROVED',
           },
         },
         salaryRecord: {
           where: {
-            month: {
-              gte: startDate,
-              lte: endDate,
-            },
+            month: { gte: startDate, lte: endDate },
           },
         },
       },
@@ -212,23 +203,6 @@ exports.getEmployeesDashboard = async (req, res, next) => {
 
     // Transform the data for the frontend
     const transformedEmployees = employees.map(employee => {
-      // Calculate day offs taken this month
-      const dayOffsTaken = employee.dayOff.length;
-      
-      // Calculate advance salary taken this month
-      const advanceTaken = employee.advanceSalary.reduce(
-        (sum, advance) => sum + parseFloat(advance.amount), 
-        0
-      );
-      
-      // Get or calculate final salary
-      let finalSalary = employee.baseSalary - advanceTaken;
-      // If we have a salary record for this month, use that instead
-      const salaryRecordForMonth = employee.salaryRecord[0];
-      if (salaryRecordForMonth) {
-        finalSalary = parseFloat(salaryRecordForMonth.finalSalary);
-      }
-      
       return {
         id: employee.id,
         email: employee.email,
@@ -238,19 +212,32 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         role: employee.role,
         baseSalary: employee.baseSalary || 0,
         remainingDayOffs: employee.remainingDayOffs || 0,
-        dayOffsTaken: dayOffsTaken,
-        advanceTaken: advanceTaken,
-        finalSalary: finalSalary
+        dayOffsTaken: employee.dayOff || [],  // Send the actual array of dayOff objects
+        advanceTaken: (employee.advanceSalary || []).reduce(
+          (sum, advance) => sum + parseFloat(advance.amount), 
+          0
+        ),
+        finalSalary: (() => {
+          const salaryRecordForMonth = employee.salaryRecord.find(
+            record => new Date(record.month).getMonth() === dashboardMonth - 1
+          );
+          return salaryRecordForMonth 
+            ? parseFloat(salaryRecordForMonth.finalSalary) 
+            : employee.baseSalary - ((employee.advanceSalary || []).reduce(
+                (sum, advance) => sum + parseFloat(advance.amount), 
+                0
+              ));
+        })(),
       };
     });
 
     res.status(200).json(transformedEmployees);
   } catch (error) {
-    next(error)
     console.error('Error fetching employee dashboard data:', error);
     res.status(500).json({ message: 'Failed to fetch employee dashboard data', error: error.message });
   }
 };
+
 
 //get all time tracking records for an employee
 exports.getTimetracking = async (req, res, next) => {

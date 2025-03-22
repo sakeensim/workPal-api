@@ -33,7 +33,15 @@ exports.register =async(req,res,next)=>{
         })
 
         
-        res.json({message : 'Register Success'})
+        res.json({message : 'Register Success',
+            employees: {
+                id: employees.id,
+                firstname: employees.firstname,
+                lastname: employees.lastname,
+                email: employees.email
+            }
+        })
+        
     } catch (error) {
         
         next(error)
