@@ -81,11 +81,3 @@ model SalaryRecord {
   employees    Employees? @relation(fields: [employeesId], references: [id])
   employeesId  Int?
 }
-
-//model NetworkSetting {
-//  id        Int      @id @default(autoincrement())
-//  name      String
-//  publicIp  String
-//  updatedAt DateTime @updatedAt
-//  createdAt DateTime @default(now())
-//}
