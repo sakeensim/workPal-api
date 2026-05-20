@@ -10,13 +10,7 @@ const authRouter = require('./routes/auth-route')
 const userRouter = require('./routes/user-route')
 const adminRouter = require('./routes/admin-route')
 //midleware
-//app.use(cors())
-const corsOptions = {
-  origin: true,
-  credentials: true,
-  methods: ["GET", "POST", "PATCH", "DELETE", "PUT", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}
+app.use(cors())
 
 app.use(cors(corsOptions))
 app.options("*", cors(corsOptions))

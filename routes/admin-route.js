@@ -5,7 +5,6 @@ const adminController = require('../controllers/admin-controller');
 const adminAuth = require('../middleware/adminAuth')
 const salaryController = require('../controllers/salary-controller')
 const {authenticate} = require('../middleware/authenticate')
-const prisma = require('../configs/prisma')
 
 // Admin only
 
@@ -36,39 +35,5 @@ router.patch('/admin/update-salary',authenticate,salaryController.updateSalary)
 router.get('/admin/dashboard', authenticate, adminAuth, adminController.getEmployeesDashboard);
 
 // router.post('/admin/salary/:employeeId/:year/:month', authenticate,adminController.updateSalaryRecord);
-
-router.patch('/admin/network-setting', authenticate, adminAuth, async (req, res) => {
-  try {
-    const { publicIp } = req.body
-
-    if (!publicIp) {
-      return res.status(400).json({
-        message: 'Public IP is required'
-      })
-    }
-
-    const setting = await prisma.networkSetting.upsert({
-      where: { id: 1 },
-      update: { publicIp },
-      create: {
-        id: 1,
-        name: 'Main Office',
-        publicIp
-      }
-    })
-
-    res.json({
-      message: 'Office IP updated',
-      setting
-    })
-
-  } catch (error) {
-    console.log(error)
-
-    res.status(500).json({
-      message: 'Server error'
-    })
-  }
-})
 
 module.exports = router
