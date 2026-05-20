@@ -3,6 +3,7 @@ const cors = require('cors')
 const morgan = require('morgan')
 
 const app = express()
+app.use(cors())
 const handlesErrors = require('.//middleware/error')
 
 //Import Router
@@ -10,7 +11,6 @@ const authRouter = require('./routes/auth-route')
 const userRouter = require('./routes/user-route')
 const adminRouter = require('./routes/admin-route')
 //midleware
-app.use(cors())
 app.use(morgan('dev'))
 app.use(express.json({limit:"10mb"}))
 
