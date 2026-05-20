@@ -5,7 +5,7 @@ const adminController = require('../controllers/admin-controller');
 const adminAuth = require('../middleware/adminAuth')
 const salaryController = require('../controllers/salary-controller')
 const {authenticate} = require('../middleware/authenticate')
-
+const prisma = require('../configs/prisma')
 
 // Admin only
 
@@ -36,8 +36,6 @@ router.patch('/admin/update-salary',authenticate,salaryController.updateSalary)
 router.get('/admin/dashboard', authenticate, adminAuth, adminController.getEmployeesDashboard);
 
 // router.post('/admin/salary/:employeeId/:year/:month', authenticate,adminController.updateSalaryRecord);
-
-const prisma = require('../configs/prisma')
 
 router.patch('/admin/network-setting', authenticate, adminAuth, async (req, res) => {
   try {
