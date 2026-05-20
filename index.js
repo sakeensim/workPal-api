@@ -11,11 +11,17 @@ const userRouter = require('./routes/user-route')
 const adminRouter = require('./routes/admin-route')
 
 const corsOptions = {
-  origin: [
-    "http://localhost:5173",
-    "https://work-pal-web.vercel.app",
-    /\.vercel\.app$/
-  ],
+  origin: function (origin, callback) {
+    if (
+      !origin ||
+      origin.includes("vercel.app") ||
+      origin === "http://localhost:5173"
+    ) {
+      callback(null, true)
+    } else {
+      callback(new Error("Not allowed by CORS"))
+    }
+  },
   credentials: true
 }
 
