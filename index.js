@@ -3,6 +3,7 @@ const cors = require('cors')
 const morgan = require('morgan')
 
 const app = express()
+app.set("trust proxy", true)
 const handlesErrors = require('.//middleware/error')
 
 //Import Router

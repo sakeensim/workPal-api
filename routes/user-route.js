@@ -5,7 +5,7 @@ const timeController = require('../controllers/time-controller')
 
 const {authenticate} = require('../middleware/authenticate')
 const { salaryAdvance } = require('../controllers/salary-controller')
-
+const { checkAllowedIP } = require('../middleware/checkAllowedIP')
 
 
 //Profile
@@ -17,10 +17,10 @@ router.get('/user/myProfile',authenticate,userController.myProfile)
 router.get('/user/approved-requests',authenticate,userController.getUserApprovedRequests)
 
 //Check-In 
-router.post('/user/check-in',authenticate,timeController.checkIn)
+router.post('/user/check-in', authenticate, checkAllowedIP, timeController.checkIn)
 
 //check-out
-router.patch('/user/check-out',authenticate,timeController.checkOut)
+router.post('/user/check-in', authenticate, checkAllowedIP, timeController.checkOut)
 
 //Day-Off
 router.post('/user/day-off',authenticate,timeController.dayOff)

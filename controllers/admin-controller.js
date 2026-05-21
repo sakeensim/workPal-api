@@ -1,5 +1,5 @@
 const prisma = require("../configs/prisma");
-
+const getClientIP = require("../utils/getClientIP")
 // Get all pending requests (both salary advances and day-off requests)
 exports.getPendingRequests = async (req, res, next) => {
   try {
@@ -420,3 +420,36 @@ exports.getTimetracking = async (req, res, next) => {
 //     res.status(500).json({ message: 'Failed to update salary record', error: error.message });
 //   }
 // };
+
+exports.registerCurrentIP = async (req, res, next) => {
+  try {
+    const clientIP = getClientIP(req)
+
+    const existing = await prisma.allowedIP.findUnique({
+      where: {
+        ipAddress: clientIP
+      }
+    })
+
+    if (existing) {
+      return res.json({
+        message: "IP already registered",
+        clientIP
+      })
+    }
+
+    await prisma.allowedIP.create({
+      data: {
+        ipAddress: clientIP,
+        note: "Registered by admin"
+      }
+    })
+
+    res.json({
+      message: "IP registered successfully",
+      clientIP
+    })
+  } catch (error) {
+    next(error)
+  }
+}
