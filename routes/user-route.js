@@ -20,7 +20,7 @@ router.get('/user/approved-requests',authenticate,userController.getUserApproved
 router.post('/user/check-in', authenticate, checkAllowedIP, timeController.checkIn)
 
 //check-out
-router.post('/user/check-in', authenticate, checkAllowedIP, timeController.checkOut)
+router.post('/user/check-out', authenticate, checkAllowedIP, timeController.checkOut)
 
 //Day-Off
 router.post('/user/day-off',authenticate,timeController.dayOff)
