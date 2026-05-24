@@ -114,6 +114,40 @@ exports.checkIn = async (req, res, next) => {
       })
     }
 
+    const { start: todayStart, end: todayEnd } = getBangkokDayRange()
+
+    const holiday = await prisma.storeHoliday.findFirst({
+      where: {
+        date: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+      },
+    })
+
+    if (holiday) {
+      return res.status(400).json({
+        message: 'วันนี้เป็นวันหยุดร้าน ไม่สามารถ Check-in ได้',
+      })
+    }
+
+    const approvedDayOff = await prisma.dayOff.findFirst({
+      where: {
+        employeesId: Number(userId),
+        status: 'APPROVED',
+        date: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
+      },
+    })
+
+    if (approvedDayOff) {
+      return res.status(400).json({
+        message: 'คุณได้ลาวันนี้ไว้แล้ว ไม่สามารถ Check-in ได้',
+      })
+    }
+
     const branch = employee.branch
 
     const distance = getDistanceMeters(
@@ -129,8 +163,6 @@ exports.checkIn = async (req, res, next) => {
         distance: Math.round(distance),
       })
     }
-
-    const { start: todayStart, end: todayEnd } = getBangkokDayRange()
 
     const existingRecord = await prisma.timeTracking.findFirst({
       where: {
