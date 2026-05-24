@@ -1,142 +1,55 @@
-/*const express = require('express')
-const router = express.Router()
-const userController = require('../controllers/user-controller')
-const adminController = require('../controllers/admin-controller');
-const adminAuth = require('../middleware/adminAuth')
-const salaryController = require('../controllers/salary-controller')
-const {authenticate} = require('../middleware/authenticate')
-
-// Admin only
-
-router.get('/user/list', authenticate, adminAuth, userController.listUsers);
-router.post('/user/update-role', authenticate, adminAuth, userController.updateRole);
-router.delete('/user/delete/:id', authenticate, adminAuth, userController.deleteUser);
-router.patch('/user/update-salary/:id', authenticate, adminAuth, userController.updateBaseSalary);
-
-// Get all pending requests
-router.get('/admin/pending-requests', authenticate, adminController.getPendingRequests);
-
-//Get all timetracking
-router.get('/admin/Work-time-record',authenticate,adminAuth,adminController.getTimetracking)
-router.get('/admin/getemployee', authenticate, adminAuth, userController.listUsers);
-
-
-// Salary advance approval routes
-router.patch('/admin/salary-approve/:id', authenticate, adminController.approveSalaryRequest);
-router.patch('/admin/salary-reject/:id', authenticate, adminController.rejectSalaryRequest);
-
-// Day off approval routes
-router.patch('/admin/dayoff-approve/:id', authenticate, adminController.approveDayOffRequest);
-router.patch('/admin/dayoff-reject/:id', authenticate, adminController.rejectDayOffRequest);
-
-
-router.patch('/admin/update-salary',authenticate,salaryController.updateSalary)
-
-router.get('/admin/dashboard', authenticate, adminAuth, adminController.getEmployeesDashboard);
-
-// router.post('/admin/salary/:employeeId/:year/:month', authenticate,adminController.updateSalaryRecord);
-
-const prisma = require('../configs/prisma')
-
-router.patch('/admin/network-setting', authenticate, adminAuth, async (req, res) => {
-  try {
-
-    const { publicIp } = req.body
-
-    const setting = await prisma.networkSetting.upsert({
-      where: { id: 1 },
-      update: {
-        publicIp
-      },
-      create: {
-        id: 1,
-        name: 'Main Office',
-        publicIp
-      }
-    })
-
-    res.json(setting)
-
-  } catch (error) {
-    console.log(error)
-
-    res.status(500).json({
-      message: 'Server error'
-    })
-  }
-})
-module.exports = router*/
 const express = require('express')
 const router = express.Router()
 
 const userController = require('../controllers/user-controller')
 const adminController = require('../controllers/admin-controller')
 const adminAuth = require('../middleware/adminAuth')
+const ownerAuth = require('../middleware/ownerAuth')
 const salaryController = require('../controllers/salary-controller')
+const branchController = require('../controllers/branch-controller')
 const { authenticate } = require('../middleware/authenticate')
-const prisma = require('../configs/prisma')
-const getClientIP = require('../utils/getClientIP')
+const positionController = require('../controllers/position-controller')
+const holidayController = require('../controllers/holiday-controller')
 
-// Admin only
-router.get('/user/list', authenticate, adminAuth, userController.listUsers)
-router.post('/user/update-role', authenticate, adminAuth, userController.updateRole)
-router.delete('/user/delete/:id', authenticate, adminAuth, userController.deleteUser)
-router.patch('/user/update-salary/:id', authenticate, adminAuth, userController.updateBaseSalary)
+// Owner only: User Management
+router.get('/user/list', authenticate, ownerAuth, userController.listUsers)
+router.post('/user/update-role', authenticate, ownerAuth, userController.updateRole)
+router.delete('/user/delete/:id', authenticate, ownerAuth, userController.deleteUser)
+router.post('/admin/user', authenticate, ownerAuth, userController.createUser)
 
-// Get all pending requests
-router.get('/admin/pending-requests', authenticate, adminController.getPendingRequests)
+router.patch('/user/update-salary/:id', authenticate, ownerAuth, userController.updateBaseSalary)
+router.patch('/admin/update-salary', authenticate, ownerAuth, salaryController.updateSalary)
+router.patch('/admin/user-branch/:id', authenticate, ownerAuth, userController.updateUserBranch)
+router.patch('/admin/user-position/:id', authenticate, ownerAuth, userController.updateUserPosition)
 
-// Get all timetracking
+// Branch management
+router.post('/admin/branch', authenticate, adminAuth, branchController.createBranch)
+router.get('/admin/branches', authenticate, adminAuth, branchController.listBranches)
+router.patch('/admin/branch/:id', authenticate, adminAuth, branchController.updateBranch)
+router.delete('/admin/branch/:id', authenticate, adminAuth, branchController.deleteBranch)
+
+// Position management
+router.post('/admin/position', authenticate, adminAuth, positionController.createPosition)
+router.get('/admin/positions', authenticate, adminAuth, positionController.listPositions)
+router.patch('/admin/position/:id', authenticate, adminAuth, positionController.updatePosition)
+router.delete('/admin/position/:id', authenticate, adminAuth, positionController.deletePosition)
+
+// Holiday management
+router.post('/admin/holiday', authenticate, adminAuth, holidayController.createHoliday)
+router.get('/admin/holidays', authenticate, adminAuth, holidayController.getHolidays)
+router.delete('/admin/holiday/:id', authenticate, adminAuth, holidayController.deleteHoliday)
+
+// Admin + Owner
+router.get('/admin/dashboard', authenticate, adminAuth, adminController.getEmployeesDashboard)
 router.get('/admin/Work-time-record', authenticate, adminAuth, adminController.getTimetracking)
 router.get('/admin/getemployee', authenticate, adminAuth, userController.listUsers)
 
-// Salary advance approval routes
-router.patch('/admin/salary-approve/:id', authenticate, adminController.approveSalaryRequest)
-router.patch('/admin/salary-reject/:id', authenticate, adminController.rejectSalaryRequest)
+router.get('/admin/pending-requests', authenticate, adminAuth, adminController.getPendingRequests)
 
-// Day off approval routes
-router.patch('/admin/dayoff-approve/:id', authenticate, adminController.approveDayOffRequest)
-router.patch('/admin/dayoff-reject/:id', authenticate, adminController.rejectDayOffRequest)
+router.patch('/admin/salary-approve/:id', authenticate, adminAuth, adminController.approveSalaryRequest)
+router.patch('/admin/salary-reject/:id', authenticate, adminAuth, adminController.rejectSalaryRequest)
 
-router.patch('/admin/update-salary', authenticate, salaryController.updateSalary)
-
-router.get('/admin/dashboard', authenticate, adminAuth, adminController.getEmployeesDashboard)
-
-// Register current IP automatically
-router.post('/admin/register-current-ip', authenticate, adminAuth, async (req, res) => {
-  try {
-
-    const clientIP = getClientIP(req)
-
-    const saved = await prisma.allowedIP.upsert({
-      where: {
-        id: 1
-      },
-      update: {
-        ipAddress: clientIP
-      },
-      create: {
-        id: 1,
-        ipAddress: clientIP,
-        note: 'Main Office'
-      }
-    })
-
-    res.json({
-      message: 'Current IP registered successfully',
-      clientIP,
-      saved,
-    })
-
-  } catch (error) {
-
-    console.log(error)
-
-    res.status(500).json({
-      message: 'Server error',
-    })
-
-  }
-})
+router.patch('/admin/dayoff-approve/:id', authenticate, adminAuth, adminController.approveDayOffRequest)
+router.patch('/admin/dayoff-reject/:id', authenticate, adminAuth, adminController.rejectDayOffRequest)
 
 module.exports = router

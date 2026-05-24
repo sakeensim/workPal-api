@@ -7,6 +7,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Branch {
+  id        Int      @id @default(autoincrement())
+  name      String
+  code      String   @unique
+  address   String?
+  lat       Float
+  lng       Float
+  radius    Int      @default(100)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employees Employees[]
+}
+
 model Employees {
   id               Int             @id @default(autoincrement())
   email            String          @unique
@@ -14,7 +29,6 @@ model Employees {
   lastname         String
   phone            String?
   emergencyContact String?
-  password         String
   profileImage     String?
   publicId         String?
   baseSalary       Int?
@@ -26,11 +40,18 @@ model Employees {
   advanceSalary    AdvanceSalary[]
   salaryRecord     SalaryRecord[]
   remainingDayOffs Int             @default(0)
+  branchId Int?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  positionId Int?
+  position   Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  lastDayOffResetMonth   Int?
+  lastDayOffResetYear    Int?
 }
 
 enum Role {
   USER
   ADMIN
+  OWNER
 }
 
 model TimeTracking {
@@ -41,6 +62,10 @@ model TimeTracking {
 
   employees   Employees? @relation(fields: [employeesId], references: [id])
   employeesId Int?
+  lateMinutes       Int     @default(0)
+  earlyLeaveMinutes Int     @default(0)
+  checkInNote       String?
+  checkOutNote      String?
 }
 
 model DayOff {
@@ -59,6 +84,7 @@ enum Status {
   PENDING
   APPROVED
   REJECTED
+  CANCELED
 }
 
 model AdvanceSalary {
@@ -81,10 +107,22 @@ model SalaryRecord {
   employees    Employees? @relation(fields: [employeesId], references: [id])
   employeesId  Int?
 }
+model Position {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique
+  description  String?
+  checkInTime  String
+  checkOutTime String
+  maxDayOffPerMonth  Int @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-model AllowedIP {
+  employees    Employees[]
+}
+
+model StoreHoliday {
   id        Int      @id @default(autoincrement())
-  ipAddress String   @unique
-  note      String?
+  date      DateTime
+  title     String?
   createdAt DateTime @default(now())
 }

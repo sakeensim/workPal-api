@@ -1,4 +1,4 @@
-const prisma = require('../configs/prisma')
+/*const prisma = require('../configs/prisma')
 const getClientIP = require('../utils/getClientIP')
 
 exports.checkAllowedIP = async (req, res, next) => {
@@ -38,4 +38,4 @@ exports.checkAllowedIP = async (req, res, next) => {
     })
 
   }
-}
+}*/
