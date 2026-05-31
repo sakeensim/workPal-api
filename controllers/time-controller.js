@@ -23,20 +23,11 @@ const getBangkokDayRange = (date = new Date()) => {
 const getBangkokMonthRange = (date = new Date()) => {
   const bangkokDate = getBangkokDateString(date)
   const [year, month] = bangkokDate.split('-').map(Number)
-
-  const start = new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`)
-  const end = new Date(year, month, 0, 23, 59, 59, 999)
+  const lastDay = new Date(year, month, 0).getDate()
 
   return {
-    start,
-    end: new Date(
-      new Intl.DateTimeFormat('en-CA', {
-        timeZone: BANGKOK_TIMEZONE,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(end) + 'T23:59:59.999+07:00'
-    ),
+    start: new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`),
+    end: new Date(`${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`),
   }
 }
 
@@ -58,7 +49,10 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
 function calculateLateMinutes(currentTime, targetTime) {
   const [hour, minute] = targetTime.split(':').map(Number)
   const today = getBangkokDateString(currentTime)
-  const targetDate = new Date(`${today}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`)
+
+  const targetDate = new Date(
+    `${today}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`
+  )
 
   const diffMs = currentTime - targetDate
   const diffMinutes = Math.floor(diffMs / 1000 / 60)
@@ -69,7 +63,10 @@ function calculateLateMinutes(currentTime, targetTime) {
 function calculateEarlyLeaveMinutes(currentTime, targetTime) {
   const [hour, minute] = targetTime.split(':').map(Number)
   const today = getBangkokDateString(currentTime)
-  const targetDate = new Date(`${today}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`)
+
+  const targetDate = new Date(
+    `${today}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`
+  )
 
   const diffMs = targetDate - currentTime
   const diffMinutes = Math.floor(diffMs / 1000 / 60)
@@ -118,6 +115,7 @@ exports.checkIn = async (req, res, next) => {
 
     const holiday = await prisma.storeHoliday.findFirst({
       where: {
+        branchId: employee.branchId,
         date: {
           gte: todayStart,
           lte: todayEnd,
@@ -127,7 +125,7 @@ exports.checkIn = async (req, res, next) => {
 
     if (holiday) {
       return res.status(400).json({
-        message: 'วันนี้เป็นวันหยุดร้าน ไม่สามารถ Check-in ได้',
+        message: 'วันนี้เป็นวันหยุดของสาขานี้ ไม่สามารถ Check-in ได้',
       })
     }
 
@@ -336,10 +334,8 @@ exports.dayOff = async (req, res, next) => {
 
     const { start: todayStart } = getBangkokDayRange()
     const requestDate = new Date(date)
-    const {
-      start: requestDayStart,
-      end: requestDayEnd,
-    } = getBangkokDayRange(requestDate)
+    const { start: requestDayStart, end: requestDayEnd } =
+      getBangkokDayRange(requestDate)
 
     if (requestDayStart < todayStart) {
       return res.status(400).json({
@@ -348,8 +344,31 @@ exports.dayOff = async (req, res, next) => {
       })
     }
 
+    const employee = await prisma.employees.findUnique({
+      where: { id: Number(employeesId) },
+      include: {
+        position: true,
+        branch: true,
+      },
+    })
+
+    if (!employee?.branch) {
+      return res.status(400).json({
+        success: false,
+        message: 'พนักงานยังไม่ได้ถูกกำหนดสาขา',
+      })
+    }
+
+    if (!employee?.position) {
+      return res.status(400).json({
+        success: false,
+        message: 'พนักงานยังไม่ได้ถูกกำหนดตำแหน่ง',
+      })
+    }
+
     const holiday = await prisma.storeHoliday.findFirst({
       where: {
+        branchId: employee.branchId,
         date: {
           gte: requestDayStart,
           lte: requestDayEnd,
@@ -360,21 +379,7 @@ exports.dayOff = async (req, res, next) => {
     if (holiday) {
       return res.status(400).json({
         success: false,
-        message: 'วันที่เลือกเป็นวันหยุดร้าน ไม่จำเป็นต้องขอลา',
-      })
-    }
-
-    const employee = await prisma.employees.findUnique({
-      where: { id: Number(employeesId) },
-      include: {
-        position: true,
-      },
-    })
-
-    if (!employee?.position) {
-      return res.status(400).json({
-        success: false,
-        message: 'พนักงานยังไม่ได้ถูกกำหนดตำแหน่ง',
+        message: 'วันที่เลือกเป็นวันหยุดของสาขานี้ ไม่จำเป็นต้องขอลา',
       })
     }
 

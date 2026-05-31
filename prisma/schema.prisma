@@ -20,6 +20,7 @@ model Branch {
   updatedAt DateTime @updatedAt
 
   employees Employees[]
+  holidays StoreHoliday[]
 }
 
 model Employees {
@@ -124,5 +125,11 @@ model StoreHoliday {
   id        Int      @id @default(autoincrement())
   date      DateTime
   title     String?
+
+  branchId  Int
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
+
+  @@unique([date, branchId])
 }

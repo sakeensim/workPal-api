@@ -1,68 +1,69 @@
 const cloudinary = require("../configs/cloudinary")
 const prisma = require("../configs/prisma")
-//1. list all users
+
 const getBangkokMonthRange = (year, month) => {
   const start = new Date(
     `${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`
   )
 
+  const lastDay = new Date(year, month, 0).getDate()
+
   const end = new Date(
-    `${year}-${String(month).padStart(2, '0')}-${String(
-      new Date(year, month, 0).getDate()
-    ).padStart(2, '0')}T23:59:59.999+07:00`
+    `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`
   )
 
-  return {
-    start,
-    end,
+  return { start, end }
+}
+
+exports.listUsers = async (req, res, next) => {
+  try {
+    const users = await prisma.employees.findMany({
+      include: {
+        branch: true,
+        position: true,
+      },
+      orderBy: {
+        firstname: 'asc',
+      },
+    })
+
+    res.json({ result: users })
+  } catch (error) {
+    next(error)
   }
 }
-exports.listUsers = async(req,res,next)=>{
-        try {
-            const users = await prisma.employees.findMany({
-                include: { branch: true ,position: true},
-                orderBy: { firstname: 'asc' },
-            })
-            console.log(users)
-            res.json({result : users})
-        } catch (error) {
-            next(error)
-            
-        }
 
-}
-//2. Update Role 
-exports.updateRole = async(req,res,next)=>{
-    try {
-        const {id, role} = req.body
-        // อัพเดท role
-        await prisma.employees.update({
-            where: { id: Number(id) },
-            data: { role: role },
-        })
-        res.json({message: 'Update Success'})
-    } catch (error) {
-        next(error)
-    }
+exports.updateRole = async (req, res, next) => {
+  try {
+    const { id, role } = req.body
+
+    await prisma.employees.update({
+      where: { id: Number(id) },
+      data: { role },
+    })
+
+    res.json({ message: 'Update Success' })
+  } catch (error) {
+    next(error)
+  }
 }
 
-//3. Delete User
 exports.deleteUser = async (req, res, next) => {
-    try {
-      const { id } = req.params;
-      const deleted = await prisma.employees.delete({
-        where: {
-          id: Number(id),
-        },
-      });
-      console.log(id);
-      res.json({ message: "Delete Success" });
-    } catch (error) {
-      next(error);
-    }
-  };
+  try {
+    const { id } = req.params
 
-//4. edite image profile
+    await prisma.employees.delete({
+      where: {
+        id: Number(id),
+      },
+    })
+
+    res.json({ message: 'Delete Success' })
+  } catch (error) {
+    next(error)
+  }
+}
+
 exports.uploadImg = async (req, res, next) => {
   try {
     const { id } = req.user
@@ -90,7 +91,6 @@ exports.uploadImg = async (req, res, next) => {
   }
 }
 
-//update Profil
 exports.updateProfile = async (req, res, next) => {
   try {
     const { id } = req.params
@@ -127,8 +127,8 @@ exports.myProfile = async (req, res, next) => {
       where: {
         id: Number(id),
       },
-
       include: {
+        branch: true,
         position: true,
       },
     })
@@ -141,76 +141,91 @@ exports.myProfile = async (req, res, next) => {
   }
 }
 
-//update approved status
 exports.getUserApprovedRequests = async (req, res, next) => {
-    try {
-        console.log("Fetching approved requests for user:", req.user);
-        const userId = req.user.id;
+  try {
+    const userId = req.user.id
 
-        // Get approved advance salary requests
-        const approvedSalaryRequests = await prisma.advanceSalary.findMany({
-            where: { employeesId: userId, status: 'APPROVED' },
-            orderBy: { requestDate: 'desc' }
-        });
+    const approvedSalaryRequests = await prisma.advanceSalary.findMany({
+      where: {
+        employeesId: userId,
+        status: 'APPROVED',
+      },
+      orderBy: {
+        requestDate: 'desc',
+      },
+    })
 
-        // Calculate total approved salary sum
-        const totalApprovedSalary = approvedSalaryRequests.reduce((sum, req) => sum + Number(req.amount), 0);
+    const totalApprovedSalary = approvedSalaryRequests.reduce(
+      (sum, item) => sum + Number(item.amount || 0),
+      0
+    )
 
-        // Get approved day-off requests
-        const approvedDayOffRequests = await prisma.dayOff.findMany({
-            where: { employeesId: userId, status: 'APPROVED' },
-            orderBy: { date: 'desc' }
-        });
+    const approvedDayOffRequests = await prisma.dayOff.findMany({
+      where: {
+        employeesId: userId,
+        status: 'APPROVED',
+      },
+      orderBy: {
+        date: 'desc',
+      },
+    })
 
-        // Format the response
-        const formattedSalaryRequests = approvedSalaryRequests.map(req => ({
-            id: req.id,
-            type: 'salary',
-            amount: req.amount,
-            requestDate: req.requestDate,
-            status: req.status,
-            createdAt: req.createdAt,
-            updatedAt: req.updatedAt
-        }));
+    const formattedSalaryRequests = approvedSalaryRequests.map((item) => ({
+      id: item.id,
+      type: 'salary',
+      amount: item.amount,
+      requestDate: item.requestDate,
+      status: item.status,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }))
 
-        const formattedDayOffRequests = approvedDayOffRequests.map(req => ({
-            id: req.id,
-            type: 'dayoff',
-            reason: req.reason,
-            date: req.date,
-            status: req.status,
-            createdAt: req.createdAt,
-            updatedAt: req.updatedAt
-        }));
+    const formattedDayOffRequests = approvedDayOffRequests.map((item) => ({
+      id: item.id,
+      type: 'dayoff',
+      reason: item.reason,
+      date: item.date,
+      status: item.status,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }))
 
-        const allApprovedRequests = [...formattedSalaryRequests, ...formattedDayOffRequests];
+    const allApprovedRequests = [
+      ...formattedSalaryRequests,
+      ...formattedDayOffRequests,
+    ]
 
-        // Sort by most recent updates
-        allApprovedRequests.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    allApprovedRequests.sort(
+      (a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)
+    )
 
-        console.log('Approved Requests:', allApprovedRequests);
-
-        res.json({ data: allApprovedRequests, totalSalaryAdvance: totalApprovedSalary });
-    } catch (error) {
-        console.error("Error in getUserApprovedRequests:", error);
-        next(error);
-    }
-};
-exports.updateBaseSalary = async(req,res,next)=>{
-    try {
-        const {id} = req.params;
-        const {baseSalary} = req.body;
-        
-        await prisma.employees.update({
-            where: { id: Number(id) },
-            data: { baseSalary: baseSalary.toString() }
-        });
-        
-        res.json({message: 'Salary updated successfully'});
-    } catch (error) {
-        next(error);
-    }
+    res.json({
+      data: allApprovedRequests,
+      totalSalaryAdvance: totalApprovedSalary,
+    })
+  } catch (error) {
+    next(error)
+  }
 }
+
+exports.updateBaseSalary = async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { baseSalary } = req.body
+
+    await prisma.employees.update({
+      where: { id: Number(id) },
+      data: {
+        baseSalary: Number(baseSalary || 0),
+      },
+    })
+
+    res.json({ message: 'Salary updated successfully' })
+  } catch (error) {
+    next(error)
+  }
+}
+
 exports.updateUserBranch = async (req, res, next) => {
   try {
     const { id } = req.params
@@ -228,6 +243,7 @@ exports.updateUserBranch = async (req, res, next) => {
     next(error)
   }
 }
+
 exports.createUser = async (req, res, next) => {
   try {
     const {
@@ -242,7 +258,6 @@ exports.createUser = async (req, res, next) => {
       positionId,
     } = req.body
 
-    // check existing email
     const existingUser = await prisma.employees.findUnique({
       where: {
         email,
@@ -254,15 +269,23 @@ exports.createUser = async (req, res, next) => {
         message: 'Email already exists',
       })
     }
+
+    let position = null
+
     if (positionId) {
-        position = await prisma.position.findUnique({
-            where: {
-            id: Number(positionId),
-            },
+      position = await prisma.position.findUnique({
+        where: {
+          id: Number(positionId),
+        },
+      })
+
+      if (!position) {
+        return res.status(404).json({
+          message: 'Position not found',
         })
+      }
     }
 
-    // create user
     const user = await prisma.employees.create({
       data: {
         email,
@@ -271,23 +294,16 @@ exports.createUser = async (req, res, next) => {
         phone,
         emergencyContact,
         role: role || 'USER',
-        baseSalary: baseSalary
-          ? Number(baseSalary)
-          : null,
-        branchId: branchId
-        ? Number(branchId)
-        : null,
-
-        positionId: positionId
-        ? Number(positionId)
-        : null,
-
+        baseSalary: baseSalary ? Number(baseSalary) : 0,
+        branchId: branchId ? Number(branchId) : null,
+        positionId: positionId ? Number(positionId) : null,
         remainingDayOffs: position
-        ? Number(position.maxDayOffPerMonth || 0)
-        : 0,
+          ? Number(position.maxDayOffPerMonth || 0)
+          : 0,
       },
       include: {
         branch: true,
+        position: true,
       },
     })
 
@@ -299,10 +315,23 @@ exports.createUser = async (req, res, next) => {
     next(error)
   }
 }
+
 exports.updateUserPosition = async (req, res, next) => {
   try {
     const { id } = req.params
     const { positionId } = req.body
+
+    const employee = await prisma.employees.findUnique({
+      where: {
+        id: Number(id),
+      },
+    })
+
+    if (!employee) {
+      return res.status(404).json({
+        message: 'Employee not found',
+      })
+    }
 
     const position = positionId
       ? await prisma.position.findUnique({
@@ -312,18 +341,26 @@ exports.updateUserPosition = async (req, res, next) => {
         })
       : null
 
+    if (positionId && !position) {
+      return res.status(404).json({
+        message: 'Position not found',
+      })
+    }
+
+    const newMaxDayOff = position
+      ? Number(position.maxDayOffPerMonth || 0)
+      : 0
+
+    const currentRemaining = Number(employee.remainingDayOffs || 0)
+
     await prisma.employees.update({
       where: {
         id: Number(id),
       },
-
       data: {
-        positionId: positionId
-          ? Number(positionId)
-          : null,
-
+        positionId: positionId ? Number(positionId) : null,
         remainingDayOffs: position
-          ? Number(position.maxDayOffPerMonth || 0)
+          ? Math.min(currentRemaining, newMaxDayOff)
           : 0,
       },
     })
@@ -335,6 +372,7 @@ exports.updateUserPosition = async (req, res, next) => {
     next(error)
   }
 }
+
 exports.getUserHistory = async (req, res, next) => {
   try {
     const userId = req.user.id
@@ -346,15 +384,6 @@ exports.getUserHistory = async (req, res, next) => {
     const { start: startDate, end: endDate } =
       getBangkokMonthRange(yearNum, monthNum)
 
-    const holidays = await prisma.storeHoliday.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    })
-
     const employee = await prisma.employees.findUnique({
       where: { id: Number(userId) },
       include: {
@@ -363,30 +392,57 @@ exports.getUserHistory = async (req, res, next) => {
 
         timetracking: {
           where: {
-            date: { gte: startDate, lte: endDate },
+            date: {
+              gte: startDate,
+              lte: endDate,
+            },
           },
-          orderBy: { checkIn: 'desc' },
+          orderBy: {
+            checkIn: 'desc',
+          },
         },
 
         dayOff: {
           where: {
-            date: { gte: startDate, lte: endDate },
+            date: {
+              gte: startDate,
+              lte: endDate,
+            },
           },
-          orderBy: { date: 'desc' },
+          orderBy: {
+            date: 'desc',
+          },
         },
 
         advanceSalary: {
           where: {
-            requestDate: { gte: startDate, lte: endDate },
+            requestDate: {
+              gte: startDate,
+              lte: endDate,
+            },
           },
-          orderBy: { requestDate: 'desc' },
+          orderBy: {
+            requestDate: 'desc',
+          },
         },
       },
     })
 
     if (!employee) {
-      return res.status(404).json({ message: 'Employee not found' })
+      return res.status(404).json({
+        message: 'Employee not found',
+      })
     }
+
+    const holidays = await prisma.storeHoliday.findMany({
+      where: {
+        branchId: employee.branchId || undefined,
+        date: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+    })
 
     const toBangkokDateKey = (date) => {
       return new Intl.DateTimeFormat('en-CA', {
@@ -459,16 +515,19 @@ exports.getUserHistory = async (req, res, next) => {
       })
 
     holidays.forEach((holiday) => {
-    const key = toBangkokDateKey(holiday.date)
-    const dayNumber = Number(key.slice(8, 10))
+      const key = toBangkokDateKey(holiday.date)
+      const dayNumber = Number(key.slice(8, 10))
 
-    if (key.slice(0, 7) === selectedMonthKey && dayNumber <= lastDayToCheck) {
+      if (
+        key.slice(0, 7) === selectedMonthKey &&
+        dayNumber <= lastDayToCheck
+      ) {
         attendanceLogs.push({
-        date: key,
-        status: 'HOLIDAY',
-        reason: holiday.title || 'Store holiday',
+          date: key,
+          status: 'HOLIDAY',
+          reason: holiday.title || 'Store holiday',
         })
-    }
+      }
     })
 
     for (let day = 1; day <= lastDayToCheck; day++) {
@@ -526,7 +585,9 @@ exports.getUserHistory = async (req, res, next) => {
         baseSalary: employee.baseSalary || 0,
         branch: employee.branch,
         position: employee.position,
-        remainingDayOffs: employee.remainingDayOffs,
+        remainingDayOffs: employee.position
+          ? Number(employee.remainingDayOffs || 0)
+          : 0,
       },
 
       summary: {

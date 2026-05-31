@@ -67,10 +67,14 @@ exports.updatePosition = async (req, res, next) => {
       })
     }
 
+    const oldMaxDayOff = Number(oldPosition.maxDayOffPerMonth || 0)
+
     const newMaxDayOff =
       maxDayOffPerMonth !== undefined
         ? Number(maxDayOffPerMonth || 0)
-        : Number(oldPosition.maxDayOffPerMonth || 0)
+        : oldMaxDayOff
+
+    const addDayOff = Math.max(0, newMaxDayOff - oldMaxDayOff)
 
     const result = await prisma.$transaction(async (tx) => {
       const position = await tx.position.update({
@@ -86,17 +90,33 @@ exports.updatePosition = async (req, res, next) => {
         },
       })
 
-      await tx.employees.updateMany({
+      const employees = await tx.employees.findMany({
         where: {
           positionId,
-          remainingDayOffs: {
-            gt: newMaxDayOff,
-          },
         },
-        data: {
-          remainingDayOffs: newMaxDayOff,
+        select: {
+          id: true,
+          remainingDayOffs: true,
         },
       })
+
+      for (const employee of employees) {
+        const currentRemaining = Number(employee.remainingDayOffs || 0)
+
+        const newRemainingDayOffs = Math.min(
+          newMaxDayOff,
+          currentRemaining + addDayOff
+        )
+
+        await tx.employees.update({
+          where: {
+            id: employee.id,
+          },
+          data: {
+            remainingDayOffs: newRemainingDayOffs,
+          },
+        })
+      }
 
       return position
     })

@@ -15,8 +15,10 @@ const getBangkokMonthRange = (year, month) => {
     `${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`
   )
 
+  const lastDay = new Date(year, month, 0).getDate()
+
   const end = new Date(
-    `${year}-${String(month).padStart(2, '0')}-31T23:59:59.999+07:00`
+    `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`
   )
 
   return { start, end }
@@ -443,10 +445,9 @@ exports.getEmployeesDashboard = async (req, res, next) => {
 
     const todayKey = toBangkokDateKey(new Date())
 
-    const selectedMonthKey = `${dashboardYear}-${String(dashboardMonth).padStart(
-      2,
-      '0'
-    )}`
+    const selectedMonthKey = `${dashboardYear}-${String(
+      dashboardMonth
+    ).padStart(2, '0')}`
 
     const currentMonthKey = todayKey.slice(0, 7)
 
@@ -462,11 +463,18 @@ exports.getEmployeesDashboard = async (req, res, next) => {
 
     const lastDayToCheck = getLastDayToCheck()
 
-    const holidayDateKeys = new Set(
-      holidays.map((holiday) => toBangkokDateKey(holiday.date))
-    )
-
     const transformedEmployees = employees.map((employee) => {
+      const employeeHolidays = holidays.filter(
+        (holiday) =>
+          Number(holiday.branchId) === Number(employee.branchId)
+      )
+
+      const holidayDateKeys = new Set(
+        employeeHolidays.map((holiday) =>
+          toBangkokDateKey(holiday.date)
+        )
+      )
+
       const approvedAdvanceSalary = (employee.advanceSalary || []).filter(
         (advance) => advance.status === 'APPROVED'
       )
@@ -524,7 +532,8 @@ exports.getEmployeesDashboard = async (req, res, next) => {
             reason: dayOff.reason || null,
           })
         })
-      holidays.forEach((holiday) => {
+
+      employeeHolidays.forEach((holiday) => {
         const key = toBangkokDateKey(holiday.date)
         const dayNumber = Number(key.slice(8, 10))
 
@@ -541,10 +550,9 @@ exports.getEmployeesDashboard = async (req, res, next) => {
       })
 
       for (let day = 1; day <= lastDayToCheck; day++) {
-        const dateKey = `${dashboardYear}-${String(dashboardMonth).padStart(
-          2,
-          '0'
-        )}-${String(day).padStart(2, '0')}`
+        const dateKey = `${dashboardYear}-${String(
+          dashboardMonth
+        ).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 
         if (dateKey < employeeCreatedKey) continue
 
@@ -581,7 +589,9 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         position: employee.position,
 
         baseSalary: employee.baseSalary || 0,
-        remainingDayOffs: employee.remainingDayOffs || 0,
+        remainingDayOffs: employee.position
+          ? Number(employee.remainingDayOffs || 0)
+          : 0,
 
         timetracking: employee.timetracking || [],
         dayOff: employee.dayOff || [],
