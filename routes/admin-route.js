@@ -10,7 +10,7 @@ const branchController = require('../controllers/branch-controller')
 const { authenticate } = require('../middleware/authenticate')
 const positionController = require('../controllers/position-controller')
 const holidayController = require('../controllers/holiday-controller')
-
+const calendarController = require('../controllers/calendar-controller')
 // Owner only: User Management
 router.get('/user/list', authenticate, ownerAuth, userController.listUsers)
 router.post('/user/update-role', authenticate, ownerAuth, userController.updateRole)
@@ -51,5 +51,8 @@ router.patch('/admin/salary-reject/:id', authenticate, adminAuth, adminControlle
 
 router.patch('/admin/dayoff-approve/:id', authenticate, adminAuth, adminController.approveDayOffRequest)
 router.patch('/admin/dayoff-reject/:id', authenticate, adminAuth, adminController.rejectDayOffRequest)
+
+router.get('/calendar/user',authenticate,calendarController.getUserCalendar)
+router.get('/calendar/admin',authenticate,adminAuth,calendarController.getAdminCalendar)
 
 module.exports = router

@@ -47,6 +47,7 @@ model Employees {
   position   Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
   lastDayOffResetMonth   Int?
   lastDayOffResetYear    Int?
+  employeeShifts EmployeeShift[]
 }
 
 enum Role {
@@ -119,6 +120,7 @@ model Position {
   updatedAt    DateTime @updatedAt
 
   employees    Employees[]
+  shifts             Shift[]
 }
 
 model StoreHoliday {
@@ -132,4 +134,39 @@ model StoreHoliday {
   createdAt DateTime @default(now())
 
   @@unique([date, branchId])
+}
+
+model Shift {
+  id           Int      @id @default(autoincrement())
+  name         String
+  checkInTime  String
+  checkOutTime String
+  isDefault    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+
+  positionId   Int
+  position     Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  employeeShifts EmployeeShift[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([positionId, name])
+}
+
+model EmployeeShift {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+
+  employeesId Int
+  employees   Employees @relation(fields: [employeesId], references: [id], onDelete: Cascade)
+
+  shiftId     Int
+  shift       Shift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([employeesId, date])
 }
