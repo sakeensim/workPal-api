@@ -30,9 +30,91 @@ const getBangkokMonthRange = (date = new Date()) => {
       `${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`
     ),
     end: new Date(
-      `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`
+      `${year}-${String(month).padStart(2, '0')}-${String(
+        lastDay
+      ).padStart(2, '0')}T23:59:59.999+07:00`
     ),
   }
+}
+
+function addMinutes(date, minutes) {
+  const result = new Date(date)
+  result.setMinutes(result.getMinutes() + minutes)
+  return result
+}
+
+function buildBangkokDateTime(dateString, timeString) {
+  const [hour, minute] = timeString.split(':').map(Number)
+
+  return new Date(
+    `${dateString}T${String(hour).padStart(2, '0')}:${String(
+      minute
+    ).padStart(2, '0')}:00.000+07:00`
+  )
+}
+
+function getShiftWindowFromDateString(dateString, checkInTime) {
+  const shiftStart = buildBangkokDateTime(dateString, checkInTime)
+
+  return {
+    shiftStart,
+    windowStart: addMinutes(shiftStart, -30),
+    checkInWindowEnd: addMinutes(shiftStart, 15 * 60),
+    checkOutWindowEnd: addMinutes(shiftStart, 23.5 * 60),
+  }
+}
+
+function getShiftWindowCandidates(baseTime, checkInTime) {
+  const today = getBangkokDateString(baseTime)
+
+  const todayStart = new Date(`${today}T00:00:00.000+07:00`)
+  const yesterdayStart = addMinutes(todayStart, -24 * 60)
+  const yesterday = getBangkokDateString(yesterdayStart)
+
+  return [
+    getShiftWindowFromDateString(yesterday, checkInTime),
+    getShiftWindowFromDateString(today, checkInTime),
+  ]
+}
+
+function findCheckInWindow(now, shift) {
+  const candidates = getShiftWindowCandidates(now, shift.checkInTime)
+
+  return candidates
+    .filter(
+      (window) =>
+        now >= window.windowStart && now <= window.checkInWindowEnd
+    )
+    .sort((a, b) => b.shiftStart - a.shiftStart)[0]
+}
+
+function findWindowByCheckInTime(checkInTime, shift) {
+  const candidates = getShiftWindowCandidates(checkInTime, shift.checkInTime)
+
+  return candidates
+    .filter(
+      (window) =>
+        checkInTime >= window.windowStart &&
+        checkInTime <= window.checkInWindowEnd
+    )
+    .sort((a, b) => b.shiftStart - a.shiftStart)[0]
+}
+
+function getShiftEndDateTime(shiftWindow, shift) {
+  const shiftDate = getBangkokDateString(shiftWindow.shiftStart)
+  const shiftEnd = buildBangkokDateTime(shiftDate, shift.checkOutTime)
+
+  const [inHour, inMinute] = shift.checkInTime.split(':').map(Number)
+  const [outHour, outMinute] = shift.checkOutTime.split(':').map(Number)
+
+  const inTotal = inHour * 60 + inMinute
+  const outTotal = outHour * 60 + outMinute
+
+  if (outTotal <= inTotal) {
+    shiftEnd.setDate(shiftEnd.getDate() + 1)
+  }
+
+  return shiftEnd
 }
 
 function getDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -50,45 +132,26 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
   return R * c
 }
 
-function calculateLateMinutes(currentTime, targetTime) {
-  const [hour, minute] = targetTime.split(':').map(Number)
-  const today = getBangkokDateString(currentTime)
-
-  const targetDate = new Date(
-    `${today}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`
+function calculateLateMinutes(currentTime, shiftWindow) {
+  const diffMinutes = Math.floor(
+    (currentTime - shiftWindow.shiftStart) / 1000 / 60
   )
-
-  const diffMs = currentTime - targetDate
-  const diffMinutes = Math.floor(diffMs / 1000 / 60)
 
   return diffMinutes > 0 ? diffMinutes : 0
 }
 
-function calculateEarlyLeaveMinutes(currentTime, targetTime) {
-  const [hour, minute] = targetTime.split(':').map(Number)
-  const today = getBangkokDateString(currentTime)
+function calculateEarlyLeaveMinutes(currentTime, shiftWindow, shift) {
+  const shiftEnd = getShiftEndDateTime(shiftWindow, shift)
 
-  const targetDate = new Date(
-    `${today}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`
-  )
-
-  const diffMs = targetDate - currentTime
-  const diffMinutes = Math.floor(diffMs / 1000 / 60)
+  const diffMinutes = Math.floor((shiftEnd - currentTime) / 1000 / 60)
 
   return diffMinutes > 0 ? diffMinutes : 0
 }
 
-function calculateOTMinutes(currentTime, targetTime, shift) {
+function calculateOTMinutes(currentTime, shiftWindow, shift) {
   if (!shift?.allowOT) return 0
 
-  const [hour, minute] = targetTime.split(':').map(Number)
-  const today = getBangkokDateString(currentTime)
-
-  const shiftEnd = new Date(
-    `${today}T${String(hour).padStart(2, '0')}:${String(
-      minute
-    ).padStart(2, '0')}:00.000+07:00`
-  )
+  const shiftEnd = getShiftEndDateTime(shiftWindow, shift)
 
   const diffMinutes = Math.floor((currentTime - shiftEnd) / 1000 / 60)
   const otStartAfter = Number(shift.otStartAfter || 0)
@@ -153,20 +216,66 @@ exports.checkIn = async (req, res, next) => {
       })
     }
 
-    if (!selectedShift.checkInTime) {
+    if (!selectedShift.checkInTime || !selectedShift.checkOutTime) {
       return res.status(400).json({
-        message: 'กะนี้ยังไม่ได้กำหนดเวลาเข้างาน',
+        message: 'กะนี้ยังไม่ได้กำหนดเวลาเข้าออกงาน',
       })
     }
 
-    const { start: todayStart, end: todayEnd } = getBangkokDayRange()
+    const now = new Date()
+    const shiftWindow = findCheckInWindow(now, selectedShift)
+
+    if (!shiftWindow) {
+      return res.status(400).json({
+        message: 'ไม่อยู่ในช่วงเวลาที่สามารถ Check-in ได้',
+      })
+    }
+
+    const existingActiveRecord = await prisma.timeTracking.findFirst({
+      where: {
+        employeesId: Number(userId),
+        checkIn: {
+          not: null,
+        },
+        checkOut: null,
+      },
+      orderBy: {
+        checkIn: 'desc',
+      },
+    })
+
+    if (existingActiveRecord) {
+      return res.status(400).json({
+        message: 'กรุณา Check-out ก่อน Check-in ใหม่',
+      })
+    }
+
+    const existingRecordInShiftWindow = await prisma.timeTracking.findFirst({
+      where: {
+        employeesId: Number(userId),
+        checkIn: {
+          gte: shiftWindow.windowStart,
+          lte: shiftWindow.checkOutWindowEnd,
+        },
+      },
+    })
+
+    if (existingRecordInShiftWindow) {
+      return res.status(400).json({
+        message: 'คุณ Check-in ในรอบกะนี้ไปแล้ว',
+      })
+    }
+
+    const { start: shiftDayStart, end: shiftDayEnd } = getBangkokDayRange(
+      shiftWindow.windowStart
+    )
 
     const holiday = await prisma.storeHoliday.findFirst({
       where: {
         branchId: employee.branchId,
         date: {
-          gte: todayStart,
-          lte: todayEnd,
+          gte: shiftDayStart,
+          lte: shiftDayEnd,
         },
       },
     })
@@ -182,8 +291,8 @@ exports.checkIn = async (req, res, next) => {
         employeesId: Number(userId),
         status: 'APPROVED',
         date: {
-          gte: todayStart,
-          lte: todayEnd,
+          gte: shiftDayStart,
+          lte: shiftDayEnd,
         },
       },
     })
@@ -205,53 +314,21 @@ exports.checkIn = async (req, res, next) => {
 
     if (distance > branch.radius) {
       return res.status(403).json({
-        message: `คุณอยู่นอกพื้นที่ ${branch.name} ระยะห่าง ${Math.round(distance)} เมตร`,
+        message: `คุณอยู่นอกพื้นที่ ${branch.name} ระยะห่าง ${Math.round(
+          distance
+        )} เมตร`,
         distance: Math.round(distance),
       })
     }
 
-    const existingRecord = await prisma.timeTracking.findFirst({
-      where: {
-        employeesId: Number(userId),
-        date: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
-      },
-    })
-
-    if (existingRecord) {
-      return res.status(400).json({
-        message: 'วันนี้คุณ Check-in ไปแล้ว',
-      })
-    }
-
-    const now = new Date()
-
-    const [hour, minute] = selectedShift.checkInTime.split(':').map(Number)
-    const today = getBangkokDateString(now)
-
-    const shiftStart = new Date(
-      `${today}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00.000+07:00`
-    )
-
-    const allowedCheckInTime = new Date(shiftStart)
-    allowedCheckInTime.setMinutes(allowedCheckInTime.getMinutes() - 30)
-
-    if (now < allowedCheckInTime) {
-      return res.status(400).json({
-        message: 'สามารถ Check-in ได้ก่อนเวลาเข้างาน 30 นาที',
-      })
-    }
-
-    const lateMinutes = calculateLateMinutes(now, selectedShift.checkInTime)
+    const lateMinutes = calculateLateMinutes(now, shiftWindow)
 
     const timeTrackingRecord = await prisma.timeTracking.create({
       data: {
         employeesId: Number(userId),
         shiftId: selectedShift.id,
         checkIn: now,
-        date: now,
+        date: shiftWindow.windowStart,
         lateMinutes,
         checkInNote: note || null,
       },
@@ -318,12 +395,12 @@ exports.checkOut = async (req, res, next) => {
 
     if (distance > branch.radius) {
       return res.status(403).json({
-        message: `คุณอยู่นอกพื้นที่ ${branch.name} ระยะห่าง ${Math.round(distance)} เมตร`,
+        message: `คุณอยู่นอกพื้นที่ ${branch.name} ระยะห่าง ${Math.round(
+          distance
+        )} เมตร`,
         distance: Math.round(distance),
       })
     }
-
-    const { start: todayStart, end: todayEnd } = getBangkokDayRange()
 
     const activeCheckIn = await prisma.timeTracking.findFirst({
       where: {
@@ -332,10 +409,6 @@ exports.checkOut = async (req, res, next) => {
           not: null,
         },
         checkOut: null,
-        date: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
       },
       include: {
         shift: true,
@@ -347,7 +420,7 @@ exports.checkOut = async (req, res, next) => {
 
     if (!activeCheckIn) {
       return res.status(400).json({
-        message: 'คุณยังไม่ได้ Check-in วันนี้ หรือได้ Check-out ไปแล้ว',
+        message: 'คุณยังไม่ได้ Check-in หรือได้ Check-out ไปแล้ว',
       })
     }
 
@@ -355,28 +428,41 @@ exports.checkOut = async (req, res, next) => {
 
     if (!selectedShift) {
       return res.status(400).json({
-        message: 'ไม่พบกะทำงานของ Check-in วันนี้',
+        message: 'ไม่พบกะทำงานของ Check-in นี้',
       })
     }
 
-    if (!selectedShift.checkOutTime) {
+    if (!selectedShift.checkInTime || !selectedShift.checkOutTime) {
       return res.status(400).json({
-        message: 'กะนี้ยังไม่ได้กำหนดเวลาออกงาน',
+        message: 'กะนี้ยังไม่ได้กำหนดเวลาเข้าออกงาน',
       })
     }
 
     const now = new Date()
 
+    const shiftWindow =
+      findWindowByCheckInTime(new Date(activeCheckIn.checkIn), selectedShift) ||
+      getShiftWindowFromDateString(
+        getBangkokDateString(activeCheckIn.date || activeCheckIn.checkIn),
+        selectedShift.checkInTime
+      )
+
+    if (
+      now < shiftWindow.windowStart ||
+      now > shiftWindow.checkOutWindowEnd
+    ) {
+      return res.status(400).json({
+        message: 'รายการนี้เลยช่วงเวลา Check-out แล้ว กรุณาติดต่อแอดมิน',
+      })
+    }
+
     const earlyLeaveMinutes = calculateEarlyLeaveMinutes(
       now,
-      selectedShift.checkOutTime
-    )
-
-    const otMinutes = calculateOTMinutes(
-      now,
-      selectedShift.checkOutTime,
+      shiftWindow,
       selectedShift
     )
+
+    const otMinutes = calculateOTMinutes(now, shiftWindow, selectedShift)
 
     const timeTrackingRecord = await prisma.timeTracking.update({
       where: {
@@ -589,7 +675,9 @@ exports.deleteDayOff = async (req, res, next) => {
         },
       })
 
-      const maxDayOffPerMonth = Number(employee?.position?.maxDayOffPerMonth || 0)
+      const maxDayOffPerMonth = Number(
+        employee?.position?.maxDayOffPerMonth || 0
+      )
       const currentRemaining = Number(employee?.remainingDayOffs || 0)
 
       if (currentRemaining < maxDayOffPerMonth) {
