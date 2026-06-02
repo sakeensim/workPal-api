@@ -2,7 +2,7 @@ const express = require('express')
 const router = express.Router()
 const userController = require('../controllers/user-controller')
 const timeController = require('../controllers/time-controller')
-
+const shiftController = require('../controllers/shift-controller')
 const {authenticate} = require('../middleware/authenticate')
 const { salaryAdvance } = require('../controllers/salary-controller')
 //const { checkAllowedIP } = require('../middleware/checkAllowedIP')
@@ -32,6 +32,8 @@ router.post('/user/advance-salary',authenticate,salaryAdvance)
 //delete dayoff
 router.delete('/user/cancel-dayoff/:id', authenticate,timeController.deleteDayOff)
 router.get('/user/history', authenticate, userController.getUserHistory)
+
+router.get('/user/my-shifts',authenticate,shiftController.getMyShifts)
 module.exports = router
 
 

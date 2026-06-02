@@ -26,8 +26,12 @@ const getBangkokMonthRange = (date = new Date()) => {
   const lastDay = new Date(year, month, 0).getDate()
 
   return {
-    start: new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`),
-    end: new Date(`${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`),
+    start: new Date(
+      `${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`
+    ),
+    end: new Date(
+      `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`
+    ),
   }
 }
 
@@ -74,14 +78,44 @@ function calculateEarlyLeaveMinutes(currentTime, targetTime) {
   return diffMinutes > 0 ? diffMinutes : 0
 }
 
+function calculateOTMinutes(currentTime, targetTime, shift) {
+  if (!shift?.allowOT) return 0
+
+  const [hour, minute] = targetTime.split(':').map(Number)
+  const today = getBangkokDateString(currentTime)
+
+  const shiftEnd = new Date(
+    `${today}T${String(hour).padStart(2, '0')}:${String(
+      minute
+    ).padStart(2, '0')}:00.000+07:00`
+  )
+
+  const diffMinutes = Math.floor((currentTime - shiftEnd) / 1000 / 60)
+  const otStartAfter = Number(shift.otStartAfter || 0)
+
+  const rawOT = diffMinutes >= otStartAfter ? diffMinutes : 0
+
+  if (shift.otCapMinutes === null || shift.otCapMinutes === undefined) {
+    return rawOT
+  }
+
+  return Math.min(rawOT, Number(shift.otCapMinutes || 0))
+}
+
 exports.checkIn = async (req, res, next) => {
   try {
     const userId = req.user.id
-    const { latitude, longitude, note } = req.body
+    const { latitude, longitude, note, shiftId } = req.body
 
     if (!latitude || !longitude) {
       return res.status(400).json({
         message: 'Location is required',
+      })
+    }
+
+    if (!shiftId) {
+      return res.status(400).json({
+        message: 'กรุณาเลือกกะทำงาน',
       })
     }
 
@@ -105,9 +139,23 @@ exports.checkIn = async (req, res, next) => {
       })
     }
 
-    if (!employee.position.checkInTime) {
+    const selectedShift = await prisma.shift.findFirst({
+      where: {
+        id: Number(shiftId),
+        positionId: employee.positionId,
+        isActive: true,
+      },
+    })
+
+    if (!selectedShift) {
       return res.status(400).json({
-        message: 'ตำแหน่งนี้ยังไม่ได้กำหนดเวลาเข้างาน',
+        message: 'กะทำงานไม่ถูกต้อง',
+      })
+    }
+
+    if (!selectedShift.checkInTime) {
+      return res.status(400).json({
+        message: 'กะนี้ยังไม่ได้กำหนดเวลาเข้างาน',
       })
     }
 
@@ -180,7 +228,7 @@ exports.checkIn = async (req, res, next) => {
 
     const now = new Date()
 
-    const [hour, minute] = employee.position.checkInTime.split(':').map(Number)
+    const [hour, minute] = selectedShift.checkInTime.split(':').map(Number)
     const today = getBangkokDateString(now)
 
     const shiftStart = new Date(
@@ -196,15 +244,19 @@ exports.checkIn = async (req, res, next) => {
       })
     }
 
-    const lateMinutes = calculateLateMinutes(now, employee.position.checkInTime)
+    const lateMinutes = calculateLateMinutes(now, selectedShift.checkInTime)
 
     const timeTrackingRecord = await prisma.timeTracking.create({
       data: {
         employeesId: Number(userId),
+        shiftId: selectedShift.id,
         checkIn: now,
         date: now,
         lateMinutes,
         checkInNote: note || null,
+      },
+      include: {
+        shift: true,
       },
     })
 
@@ -214,6 +266,7 @@ exports.checkIn = async (req, res, next) => {
           ? `Check-in successful แต่สาย ${lateMinutes} นาที`
           : 'Check-in successful',
       branch: branch.name,
+      shift: selectedShift.name,
       distance: Math.round(distance),
       lateMinutes,
       data: timeTrackingRecord,
@@ -284,6 +337,9 @@ exports.checkOut = async (req, res, next) => {
           lte: todayEnd,
         },
       },
+      include: {
+        shift: true,
+      },
       orderBy: {
         checkIn: 'desc',
       },
@@ -295,11 +351,32 @@ exports.checkOut = async (req, res, next) => {
       })
     }
 
+    const selectedShift = activeCheckIn.shift
+
+    if (!selectedShift) {
+      return res.status(400).json({
+        message: 'ไม่พบกะทำงานของ Check-in วันนี้',
+      })
+    }
+
+    if (!selectedShift.checkOutTime) {
+      return res.status(400).json({
+        message: 'กะนี้ยังไม่ได้กำหนดเวลาออกงาน',
+      })
+    }
+
     const now = new Date()
 
-    const earlyLeaveMinutes = employee.position?.checkOutTime
-      ? calculateEarlyLeaveMinutes(now, employee.position.checkOutTime)
-      : 0
+    const earlyLeaveMinutes = calculateEarlyLeaveMinutes(
+      now,
+      selectedShift.checkOutTime
+    )
+
+    const otMinutes = calculateOTMinutes(
+      now,
+      selectedShift.checkOutTime,
+      selectedShift
+    )
 
     const timeTrackingRecord = await prisma.timeTracking.update({
       where: {
@@ -308,7 +385,11 @@ exports.checkOut = async (req, res, next) => {
       data: {
         checkOut: now,
         earlyLeaveMinutes,
+        otMinutes,
         checkOutNote: note || null,
+      },
+      include: {
+        shift: true,
       },
     })
 
@@ -316,10 +397,14 @@ exports.checkOut = async (req, res, next) => {
       message:
         earlyLeaveMinutes > 0
           ? `Check-out successful แต่ออกก่อนเวลา ${earlyLeaveMinutes} นาที`
-          : 'Check-out successful',
+          : otMinutes > 0
+            ? `Check-out successful มี OT ${otMinutes} นาที`
+            : 'Check-out successful',
       branch: branch.name,
+      shift: selectedShift.name,
       distance: Math.round(distance),
       earlyLeaveMinutes,
+      otMinutes,
       data: timeTrackingRecord,
     })
   } catch (error) {

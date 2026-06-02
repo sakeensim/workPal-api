@@ -11,6 +11,7 @@ const { authenticate } = require('../middleware/authenticate')
 const positionController = require('../controllers/position-controller')
 const holidayController = require('../controllers/holiday-controller')
 const calendarController = require('../controllers/calendar-controller')
+const shiftController = require('../controllers/shift-controller')
 // Owner only: User Management
 router.get('/user/list', authenticate, ownerAuth, userController.listUsers)
 router.post('/user/update-role', authenticate, ownerAuth, userController.updateRole)
@@ -54,5 +55,13 @@ router.patch('/admin/dayoff-reject/:id', authenticate, adminAuth, adminControlle
 
 router.get('/calendar/user',authenticate,calendarController.getUserCalendar)
 router.get('/calendar/admin',authenticate,adminAuth,calendarController.getAdminCalendar)
+
+router.post('/admin/shift',authenticate,adminAuth,shiftController.createShift)
+router.get('/admin/shifts',authenticate,adminAuth,shiftController.listShifts)
+router.patch('/admin/shift/:id',authenticate,adminAuth,shiftController.updateShift)
+router.delete('/admin/shift/:id',authenticate,adminAuth,shiftController.deleteShift)
+router.post('/admin/assign-shift',authenticate,adminAuth,shiftController.assignShift)
+router.delete('/admin/remove-assigned-shift',authenticate,adminAuth,shiftController.removeAssignedShift)
+router.get('/admin/employee-shifts',authenticate,adminAuth,shiftController.getEmployeeShifts)
 
 module.exports = router

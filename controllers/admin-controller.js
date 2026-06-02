@@ -10,6 +10,15 @@ const getBangkokDateString = (date = new Date()) => {
   }).format(date)
 }
 
+const getBangkokDayRange = (dateInput = new Date()) => {
+  const bangkokDate = getBangkokDateString(dateInput)
+
+  const start = new Date(`${bangkokDate}T00:00:00.000+07:00`)
+  const end = new Date(`${bangkokDate}T23:59:59.999+07:00`)
+
+  return { start, end }
+}
+
 const getBangkokMonthRange = (year, month) => {
   const start = new Date(
     `${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`
@@ -272,7 +281,32 @@ exports.approveDayOffRequest = async (req, res, next) => {
         message: 'พนักงานยังไม่ได้ถูกกำหนดตำแหน่ง',
       })
     }
+    const { start, end } = getBangkokDayRange(dayOffRequest.date)
 
+    const holiday = await prisma.storeHoliday.findFirst({
+      where: {
+        branchId: dayOffRequest.employees.branchId,
+        date: {
+          gte: start,
+          lte: end,
+        },
+      },
+    })
+
+    if (holiday) {
+      await prisma.dayOff.update({
+        where: {
+          id: parseInt(id),
+        },
+        data: {
+          status: 'CANCELED',
+        },
+      })
+
+      return res.status(400).json({
+        message: 'วันนี้เป็นวันหยุดของสาขานี้ ระบบยกเลิกคำขอลาแล้ว',
+      })
+    }
     const remainingDayOffs = Number(
       dayOffRequest.employees.remainingDayOffs || 0
     )
@@ -295,7 +329,7 @@ exports.approveDayOffRequest = async (req, res, next) => {
           employees: true,
         },
       })
-
+      
       await tx.employees.update({
         where: {
           id: dayOffRequest.employeesId,
@@ -399,6 +433,9 @@ exports.getEmployeesDashboard = async (req, res, next) => {
               gte: startDate,
               lte: endDate,
             },
+          },
+          include: {
+            shift: true,
           },
           orderBy: {
             checkIn: 'desc',
@@ -510,8 +547,11 @@ exports.getEmployeesDashboard = async (req, res, next) => {
           status: 'PRESENT',
           checkIn: record.checkIn,
           checkOut: record.checkOut,
+          shiftId: record.shiftId || null,
+          shiftName: record.shift?.name || null,
           lateMinutes: record.lateMinutes || 0,
           earlyLeaveMinutes: record.earlyLeaveMinutes || 0,
+          otMinutes: record.otMinutes || 0,
           checkInNote: record.checkInNote || null,
           checkOutNote: record.checkOutNote || null,
         })
@@ -668,9 +708,6 @@ exports.getTimetracking = async (req, res, next) => {
       checkIn: {
         not: null,
       },
-      checkOut: {
-        not: null,
-      },
     }
 
     if (branchId && branchId !== 'all') {
@@ -700,6 +737,7 @@ exports.getTimetracking = async (req, res, next) => {
           checkIn: 'desc',
         },
         include: {
+          shift: true,
           employees: {
             select: {
               id: true,

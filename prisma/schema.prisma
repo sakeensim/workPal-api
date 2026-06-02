@@ -68,6 +68,8 @@ model TimeTracking {
   earlyLeaveMinutes Int     @default(0)
   checkInNote       String?
   checkOutNote      String?
+  shiftId Int?
+  shift   Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   otMinutes Int @default(0)
 }
 
@@ -151,7 +153,7 @@ model Shift {
   position     Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
   employeeShifts EmployeeShift[]
-
+  timeTrackings  TimeTracking[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

@@ -10,19 +10,47 @@ exports.createPosition = async (req, res, next) => {
       maxDayOffPerMonth,
     } = req.body
 
-    const position = await prisma.position.create({
-      data: {
-        name,
-        description,
-        checkInTime,
-        checkOutTime,
-        maxDayOffPerMonth: Number(maxDayOffPerMonth || 0),
-      },
+    if (!name || !checkInTime || !checkOutTime) {
+      return res.status(400).json({
+        message: 'Name, check-in time and check-out time are required',
+      })
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const position = await tx.position.create({
+        data: {
+          name,
+          description,
+          checkInTime,
+          checkOutTime,
+          maxDayOffPerMonth: Number(maxDayOffPerMonth || 0),
+        },
+      })
+
+      const defaultShift = await tx.shift.create({
+        data: {
+          name: `${position.name}_shift`,
+          checkInTime,
+          checkOutTime,
+          positionId: position.id,
+          isDefault: true,
+          isActive: true,
+          allowOT: false,
+          otStartAfter: 0,
+          otCapMinutes: null,
+        },
+      })
+
+      return {
+        position,
+        defaultShift,
+      }
     })
 
     res.json({
       message: 'Create position success',
-      data: position,
+      data: result.position,
+      defaultShift: result.defaultShift,
     })
   } catch (error) {
     next(error)
@@ -32,10 +60,23 @@ exports.createPosition = async (req, res, next) => {
 exports.listPositions = async (req, res, next) => {
   try {
     const positions = await prisma.position.findMany({
-      orderBy: { name: 'asc' },
+      orderBy: {
+        name: 'asc',
+      },
+      include: {
+        shifts: {
+          orderBy: [
+            { isDefault: 'desc' },
+            { isActive: 'desc' },
+            { name: 'asc' },
+          ],
+        },
+      },
     })
 
-    res.json({ data: positions })
+    res.json({
+      data: positions,
+    })
   } catch (error) {
     next(error)
   }
@@ -76,18 +117,23 @@ exports.updatePosition = async (req, res, next) => {
 
     const addDayOff = Math.max(0, newMaxDayOff - oldMaxDayOff)
 
+    const updateData = {
+      name: name !== undefined ? name : oldPosition.name,
+      description:
+        description !== undefined ? description : oldPosition.description,
+      checkInTime:
+        checkInTime !== undefined ? checkInTime : oldPosition.checkInTime,
+      checkOutTime:
+        checkOutTime !== undefined ? checkOutTime : oldPosition.checkOutTime,
+      maxDayOffPerMonth: newMaxDayOff,
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const position = await tx.position.update({
         where: {
           id: positionId,
         },
-        data: {
-          name,
-          description,
-          checkInTime,
-          checkOutTime,
-          maxDayOffPerMonth: newMaxDayOff,
-        },
+        data: updateData,
       })
 
       const employees = await tx.employees.findMany({

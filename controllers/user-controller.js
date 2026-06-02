@@ -397,6 +397,9 @@ exports.getUserHistory = async (req, res, next) => {
               lte: endDate,
             },
           },
+          include: {
+            shift: true,
+        },
           orderBy: {
             checkIn: 'desc',
           },
@@ -491,8 +494,11 @@ exports.getUserHistory = async (req, res, next) => {
         status: 'PRESENT',
         checkIn: record.checkIn,
         checkOut: record.checkOut,
+        shiftId: record.shiftId || null,
+        shiftName: record.shift?.name || null,
         lateMinutes: record.lateMinutes || 0,
         earlyLeaveMinutes: record.earlyLeaveMinutes || 0,
+        otMinutes: record.otMinutes || 0,
         checkInNote: record.checkInNote || null,
         checkOutNote: record.checkOutNote || null,
       })
