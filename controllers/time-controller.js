@@ -328,7 +328,7 @@ exports.checkIn = async (req, res, next) => {
         employeesId: Number(userId),
         shiftId: selectedShift.id,
         checkIn: now,
-        date: shiftWindow.windowStart,
+        date: shiftWindow.shiftStart,
         lateMinutes,
         checkInNote: note || null,
       },
