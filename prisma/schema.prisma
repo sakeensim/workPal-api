@@ -68,6 +68,7 @@ model TimeTracking {
   earlyLeaveMinutes Int     @default(0)
   checkInNote       String?
   checkOutNote      String?
+  otMinutes Int @default(0)
 }
 
 model DayOff {
@@ -143,7 +144,9 @@ model Shift {
   checkOutTime String
   isDefault    Boolean  @default(false)
   isActive     Boolean  @default(true)
-
+  allowOT      Boolean  @default(false)
+  otStartAfter Int      @default(0) 
+  otCapMinutes Int?              
   positionId   Int
   position     Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
