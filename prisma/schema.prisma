@@ -19,13 +19,14 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  employees Employees[]
-  holidays StoreHoliday[]
+  employees     Employees[]
+  holidays      StoreHoliday[]
+  calendarNotes CalendarNote[]
 }
 
 model Employees {
-  id               Int             @id @default(autoincrement())
-  email            String          @unique
+  id               Int      @id @default(autoincrement())
+  email            String   @unique
   firstname        String
   lastname         String
   phone            String?
@@ -33,20 +34,24 @@ model Employees {
   profileImage     String?
   publicId         String?
   baseSalary       Int?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  role             Role            @default(USER)
-  timetracking     TimeTracking[]
-  dayOff           DayOff[]
-  advanceSalary    AdvanceSalary[]
-  salaryRecord     SalaryRecord[]
-  remainingDayOffs Int             @default(0)
-  branchId Int?
-  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  positionId Int?
-  position   Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  role             Role     @default(USER)
+
+  remainingDayOffs      Int @default(0)
   lastDayOffResetMonth   Int?
   lastDayOffResetYear    Int?
+
+  branchId Int?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  positionId Int?
+  position   Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
+  timetracking  TimeTracking[]
+  dayOff        DayOff[]
+  advanceSalary AdvanceSalary[]
+  salaryRecord  SalaryRecord[]
   employeeShifts EmployeeShift[]
 }
 
@@ -62,14 +67,17 @@ model TimeTracking {
   checkOut DateTime? @db.Timestamp(0)
   date     DateTime  @default(now())
 
-  employees   Employees? @relation(fields: [employeesId], references: [id])
   employeesId Int?
+  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: SetNull)
+
   lateMinutes       Int     @default(0)
   earlyLeaveMinutes Int     @default(0)
   checkInNote       String?
   checkOutNote      String?
+
   shiftId Int?
   shift   Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
   otMinutes Int @default(0)
 }
 
@@ -81,8 +89,8 @@ model DayOff {
   updatedAt DateTime @updatedAt @db.Timestamp(0)
   status    Status   @default(PENDING)
 
-  employees   Employees? @relation(fields: [employeesId], references: [id])
   employeesId Int?
+  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: SetNull)
 }
 
 enum Status {
@@ -93,37 +101,40 @@ enum Status {
 }
 
 model AdvanceSalary {
-  id          Int        @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   requestDate DateTime
-  amount      Decimal    @db.Decimal(10, 2)
-  createdAt   DateTime   @default(now()) @db.Timestamp(0)
-  updatedAt   DateTime   @updatedAt @db.Timestamp(0)
-  status      Status     @default(PENDING)
-  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: Cascade)
+  amount      Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now()) @db.Timestamp(0)
+  updatedAt   DateTime @updatedAt @db.Timestamp(0)
+  status      Status   @default(PENDING)
+
   employeesId Int?
+  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: Cascade)
 }
 
 model SalaryRecord {
-  id           Int        @id @default(autoincrement())
-  month        DateTime   @default(now())
-  baseSlary    Decimal    @db.Decimal(10, 2)
-  advanceTaken Decimal    @db.Decimal(10, 2)
-  finalSalary  Decimal    @db.Decimal(10, 2)
-  employees    Employees? @relation(fields: [employeesId], references: [id])
-  employeesId  Int?
-}
-model Position {
   id           Int      @id @default(autoincrement())
-  name         String   @unique
-  description  String?
-  checkInTime  String
-  checkOutTime String
-  maxDayOffPerMonth  Int @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  month        DateTime @default(now())
+  baseSlary    Decimal  @db.Decimal(10, 2)
+  advanceTaken Decimal  @db.Decimal(10, 2)
+  finalSalary  Decimal  @db.Decimal(10, 2)
 
-  employees    Employees[]
-  shifts             Shift[]
+  employeesId Int?
+  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: SetNull)
+}
+
+model Position {
+  id                 Int      @id @default(autoincrement())
+  name               String   @unique
+  description        String?
+  checkInTime        String
+  checkOutTime       String
+  maxDayOffPerMonth  Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  employees Employees[]
+  shifts    Shift[]
 }
 
 model StoreHoliday {
@@ -131,8 +142,8 @@ model StoreHoliday {
   date      DateTime
   title     String?
 
-  branchId  Int
-  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branchId Int
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -147,31 +158,49 @@ model Shift {
   isDefault    Boolean  @default(false)
   isActive     Boolean  @default(true)
   allowOT      Boolean  @default(false)
-  otStartAfter Int      @default(0) 
-  otCapMinutes Int?              
-  positionId   Int
-  position     Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  otStartAfter Int      @default(0)
+  otCapMinutes Int?
+
+  positionId Int
+  position   Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
 
   employeeShifts EmployeeShift[]
-  timeTrackings  TimeTracking[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  timeTrackings   TimeTracking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([positionId, name])
 }
 
 model EmployeeShift {
-  id          Int      @id @default(autoincrement())
-  date        DateTime
+  id   Int      @id @default(autoincrement())
+  date DateTime
 
   employeesId Int
   employees   Employees @relation(fields: [employeesId], references: [id], onDelete: Cascade)
 
-  shiftId     Int
-  shift       Shift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  shiftId Int
+  shift   Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([employeesId, date])
+}
+
+model CalendarNote {
+  id    Int      @id @default(autoincrement())
+  date  DateTime
+  title String
+  note  String?
+
+  branchId Int
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([branchId])
 }

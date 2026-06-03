@@ -5,8 +5,12 @@ const getMonthRange = (year, month) => {
     `${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`
   )
 
+  const lastDay = new Date(year, month, 0).getDate()
+
   const end = new Date(
-    `${year}-${String(month).padStart(2, '0')}-31T23:59:59.999+07:00`
+    `${year}-${String(month).padStart(2, '0')}-${String(
+      lastDay
+    ).padStart(2, '0')}T23:59:59.999+07:00`
   )
 
   return { start, end }
@@ -37,6 +41,12 @@ exports.getUserCalendar = async (req, res, next) => {
       })
     }
 
+    if (!employee.branchId) {
+      return res.json({
+        data: [],
+      })
+    }
+
     const holidays = await prisma.storeHoliday.findMany({
       where: {
         branchId: employee.branchId,
@@ -61,6 +71,19 @@ exports.getUserCalendar = async (req, res, next) => {
       },
     })
 
+    const notes = await prisma.calendarNote.findMany({
+      where: {
+        branchId: employee.branchId,
+        date: {
+          gte: start,
+          lte: end,
+        },
+      },
+      include: {
+        branch: true,
+      },
+    })
+
     const holidayEvents = holidays.map((item) => ({
       id: item.id,
       type: 'holiday',
@@ -75,12 +98,25 @@ exports.getUserCalendar = async (req, res, next) => {
       title: item.reason || 'Day Off',
       date: item.date,
       employeeId: item.employeesId,
-      employeeName: `${item.employees.firstname} ${item.employees.lastname}`,
-      branchId: item.employees.branchId,
+      employeeName: item.employees
+        ? `${item.employees.firstname} ${item.employees.lastname}`
+        : '-',
+      branchId: item.employees?.branchId || null,
+    }))
+
+    const noteEvents = notes.map((item) => ({
+      id: item.id,
+      type: 'note',
+      title: item.title,
+      note: item.note,
+      date: item.date,
+      branchId: item.branchId,
+      branchName: item.branch?.name || '-',
+      color: 'green',
     }))
 
     res.json({
-      data: [...holidayEvents, ...dayOffEvents],
+      data: [...holidayEvents, ...dayOffEvents, ...noteEvents],
     })
   } catch (error) {
     next(error)
@@ -112,8 +148,16 @@ exports.getAdminCalendar = async (req, res, next) => {
       },
     }
 
+    const noteWhere = {
+      date: {
+        gte: start,
+        lte: end,
+      },
+    }
+
     if (branchId && branchId !== 'all') {
       holidayWhere.branchId = Number(branchId)
+      noteWhere.branchId = Number(branchId)
 
       dayOffWhere.employees = {
         is: {
@@ -140,6 +184,16 @@ exports.getAdminCalendar = async (req, res, next) => {
       },
     })
 
+    const notes = await prisma.calendarNote.findMany({
+      where: noteWhere,
+      include: {
+        branch: true,
+      },
+      orderBy: {
+        date: 'asc',
+      },
+    })
+
     const holidayEvents = holidays.map((item) => ({
       id: item.id,
       type: 'holiday',
@@ -155,13 +209,154 @@ exports.getAdminCalendar = async (req, res, next) => {
       title: item.reason || 'Day Off',
       date: item.date,
       employeeId: item.employeesId,
-      employeeName: `${item.employees.firstname} ${item.employees.lastname}`,
-      branchId: item.employees.branchId,
-      branchName: item.employees.branch?.name || '-',
+      employeeName: item.employees
+        ? `${item.employees.firstname} ${item.employees.lastname}`
+        : '-',
+      branchId: item.employees?.branchId || null,
+      branchName: item.employees?.branch?.name || '-',
+    }))
+
+    const noteEvents = notes.map((item) => ({
+      id: item.id,
+      type: 'note',
+      title: item.title,
+      note: item.note,
+      date: item.date,
+      branchId: item.branchId,
+      branchName: item.branch?.name || '-',
+      color: 'green',
     }))
 
     res.json({
-      data: [...holidayEvents, ...dayOffEvents],
+      data: [...holidayEvents, ...dayOffEvents, ...noteEvents],
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+exports.createCalendarNote = async (req, res, next) => {
+  try {
+    const { date, title, note, branchId } = req.body
+
+    if (!date || !title || !branchId) {
+      return res.status(400).json({
+        message: 'Date, title and branch are required',
+      })
+    }
+
+    const branch = await prisma.branch.findUnique({
+      where: {
+        id: Number(branchId),
+      },
+    })
+
+    if (!branch) {
+      return res.status(404).json({
+        message: 'Branch not found',
+      })
+    }
+
+    const result = await prisma.calendarNote.create({
+      data: {
+        date: new Date(date),
+        title,
+        note: note || null,
+        branchId: Number(branchId),
+      },
+      include: {
+        branch: true,
+      },
+    })
+
+    res.json({
+      message: 'Create calendar note success',
+      result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+exports.updateCalendarNote = async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { date, title, note, branchId } = req.body
+
+    const oldNote = await prisma.calendarNote.findUnique({
+      where: {
+        id: Number(id),
+      },
+    })
+
+    if (!oldNote) {
+      return res.status(404).json({
+        message: 'Calendar note not found',
+      })
+    }
+
+    if (branchId) {
+      const branch = await prisma.branch.findUnique({
+        where: {
+          id: Number(branchId),
+        },
+      })
+
+      if (!branch) {
+        return res.status(404).json({
+          message: 'Branch not found',
+        })
+      }
+    }
+
+    const result = await prisma.calendarNote.update({
+      where: {
+        id: Number(id),
+      },
+      data: {
+        date: date ? new Date(date) : undefined,
+        title: title !== undefined ? title : undefined,
+        note: note !== undefined ? note : undefined,
+        branchId: branchId ? Number(branchId) : undefined,
+      },
+      include: {
+        branch: true,
+      },
+    })
+
+    res.json({
+      message: 'Update calendar note success',
+      result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+exports.deleteCalendarNote = async (req, res, next) => {
+  try {
+    const { id } = req.params
+
+    const oldNote = await prisma.calendarNote.findUnique({
+      where: {
+        id: Number(id),
+      },
+    })
+
+    if (!oldNote) {
+      return res.status(404).json({
+        message: 'Calendar note not found',
+      })
+    }
+
+    await prisma.calendarNote.delete({
+      where: {
+        id: Number(id),
+      },
+    })
+
+    res.json({
+      message: 'Delete calendar note success',
     })
   } catch (error) {
     next(error)

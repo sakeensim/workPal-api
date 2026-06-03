@@ -5,6 +5,7 @@ const timeController = require('../controllers/time-controller')
 const shiftController = require('../controllers/shift-controller')
 const {authenticate} = require('../middleware/authenticate')
 const { salaryAdvance } = require('../controllers/salary-controller')
+const calendarController = require('../controllers/calendar-controller')
 //const { checkAllowedIP } = require('../middleware/checkAllowedIP')
 
 
@@ -34,6 +35,9 @@ router.delete('/user/cancel-dayoff/:id', authenticate,timeController.deleteDayOf
 router.get('/user/history', authenticate, userController.getUserHistory)
 
 router.get('/user/my-shifts',authenticate,shiftController.getMyShifts)
+
+router.get('/calendar/user',authenticate,calendarController.getUserCalendar)
+
 module.exports = router
 
 

@@ -53,8 +53,10 @@ router.patch('/admin/salary-reject/:id', authenticate, adminAuth, adminControlle
 router.patch('/admin/dayoff-approve/:id', authenticate, adminAuth, adminController.approveDayOffRequest)
 router.patch('/admin/dayoff-reject/:id', authenticate, adminAuth, adminController.rejectDayOffRequest)
 
-router.get('/calendar/user',authenticate,calendarController.getUserCalendar)
 router.get('/calendar/admin',authenticate,adminAuth,calendarController.getAdminCalendar)
+router.post('/admin/calendar-note', authenticate, adminAuth, calendarController.createCalendarNote)
+router.patch('/admin/calendar-note/:id', authenticate, adminAuth, calendarController.updateCalendarNote)
+router.delete('/admin/calendar-note/:id', authenticate, adminAuth, calendarController.deleteCalendarNote)
 
 router.post('/admin/shift',authenticate,adminAuth,shiftController.createShift)
 router.get('/admin/shifts',authenticate,adminAuth,shiftController.listShifts)
