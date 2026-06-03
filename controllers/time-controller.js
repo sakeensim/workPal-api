@@ -231,25 +231,6 @@ exports.checkIn = async (req, res, next) => {
       })
     }
 
-    const existingActiveRecord = await prisma.timeTracking.findFirst({
-      where: {
-        employeesId: Number(userId),
-        checkIn: {
-          not: null,
-        },
-        checkOut: null,
-      },
-      orderBy: {
-        checkIn: 'desc',
-      },
-    })
-
-    if (existingActiveRecord) {
-      return res.status(400).json({
-        message: 'กรุณา Check-out ก่อน Check-in ใหม่',
-      })
-    }
-
     const existingRecordInShiftWindow = await prisma.timeTracking.findFirst({
       where: {
         employeesId: Number(userId),
@@ -267,7 +248,7 @@ exports.checkIn = async (req, res, next) => {
     }
 
     const { start: shiftDayStart, end: shiftDayEnd } = getBangkokDayRange(
-      shiftWindow.windowStart
+      shiftWindow.shiftStart
     )
 
     const holiday = await prisma.storeHoliday.findFirst({
