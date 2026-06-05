@@ -54,7 +54,6 @@ router.patch('/admin/dayoff-approve/:id', authenticate, adminAuth, adminControll
 router.patch('/admin/dayoff-reject/:id', authenticate, adminAuth, adminController.rejectDayOffRequest)
 
 router.get('/calendar/admin',authenticate,adminAuth,calendarController.getAdminCalendar)
-router.post('/admin/calendar-note', authenticate, adminAuth, calendarController.createCalendarNote)
 router.patch('/admin/calendar-note/:id', authenticate, adminAuth, calendarController.updateCalendarNote)
 router.delete('/admin/calendar-note/:id', authenticate, adminAuth, calendarController.deleteCalendarNote)
 

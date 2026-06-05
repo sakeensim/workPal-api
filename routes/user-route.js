@@ -37,6 +37,7 @@ router.get('/user/history', authenticate, userController.getUserHistory)
 router.get('/user/my-shifts',authenticate,shiftController.getMyShifts)
 
 router.get('/calendar/user',authenticate,calendarController.getUserCalendar)
+router.post('/admin/calendar-note', authenticate, calendarController.createCalendarNote)
 
 module.exports = router
 

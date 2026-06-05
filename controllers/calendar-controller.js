@@ -59,11 +59,15 @@ exports.getUserCalendar = async (req, res, next) => {
 
     const dayOffs = await prisma.dayOff.findMany({
       where: {
-        employeesId: Number(userId),
         status: 'APPROVED',
         date: {
           gte: start,
           lte: end,
+        },
+        employees: {
+          is: {
+            branchId: employee.branchId,
+          },
         },
       },
       include: {
@@ -239,15 +243,52 @@ exports.createCalendarNote = async (req, res, next) => {
   try {
     const { date, title, note, branchId } = req.body
 
-    if (!date || !title || !branchId) {
+    if (!date || !title) {
       return res.status(400).json({
-        message: 'Date, title and branch are required',
+        message: 'Date and title are required',
       })
+    }
+
+    const employee = await prisma.employees.findUnique({
+      where: {
+        id: Number(req.user.id),
+      },
+      select: {
+        id: true,
+        role: true,
+        branchId: true,
+      },
+    })
+
+    if (!employee) {
+      return res.status(404).json({
+        message: 'Employee not found',
+      })
+    }
+
+    let targetBranchId = null
+
+    if (employee.role === 'ADMIN' || employee.role === 'OWNER') {
+      if (!branchId) {
+        return res.status(400).json({
+          message: 'Branch is required',
+        })
+      }
+
+      targetBranchId = Number(branchId)
+    } else {
+      if (!employee.branchId) {
+        return res.status(400).json({
+          message: 'พนักงานยังไม่ได้ถูกกำหนดสาขา',
+        })
+      }
+
+      targetBranchId = Number(employee.branchId)
     }
 
     const branch = await prisma.branch.findUnique({
       where: {
-        id: Number(branchId),
+        id: targetBranchId,
       },
     })
 
@@ -262,7 +303,7 @@ exports.createCalendarNote = async (req, res, next) => {
         date: new Date(date),
         title,
         note: note || null,
-        branchId: Number(branchId),
+        branchId: targetBranchId,
       },
       include: {
         branch: true,
