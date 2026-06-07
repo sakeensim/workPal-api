@@ -30,9 +30,10 @@ const getBangkokMonthRange = (date = new Date()) => {
       `${year}-${String(month).padStart(2, '0')}-01T00:00:00.000+07:00`
     ),
     end: new Date(
-      `${year}-${String(month).padStart(2, '0')}-${String(
-        lastDay
-      ).padStart(2, '0')}T23:59:59.999+07:00`
+      `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(
+        2,
+        '0'
+      )}T23:59:59.999+07:00`
     ),
   }
 }
@@ -47,9 +48,10 @@ function buildBangkokDateTime(dateString, timeString) {
   const [hour, minute] = timeString.split(':').map(Number)
 
   return new Date(
-    `${dateString}T${String(hour).padStart(2, '0')}:${String(
-      minute
-    ).padStart(2, '0')}:00.000+07:00`
+    `${dateString}T${String(hour).padStart(2, '0')}:${String(minute).padStart(
+      2,
+      '0'
+    )}:00.000+07:00`
   )
 }
 
@@ -129,6 +131,7 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
       Math.sin(dLon / 2) ** 2
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
   return R * c
 }
 
@@ -142,27 +145,9 @@ function calculateLateMinutes(currentTime, shiftWindow) {
 
 function calculateEarlyLeaveMinutes(currentTime, shiftWindow, shift) {
   const shiftEnd = getShiftEndDateTime(shiftWindow, shift)
-
   const diffMinutes = Math.floor((shiftEnd - currentTime) / 1000 / 60)
 
   return diffMinutes > 0 ? diffMinutes : 0
-}
-
-function calculateOTMinutes(currentTime, shiftWindow, shift) {
-  if (!shift?.allowOT) return 0
-
-  const shiftEnd = getShiftEndDateTime(shiftWindow, shift)
-
-  const diffMinutes = Math.floor((currentTime - shiftEnd) / 1000 / 60)
-  const otStartAfter = Number(shift.otStartAfter || 0)
-
-  const rawOT = diffMinutes >= otStartAfter ? diffMinutes : 0
-
-  if (shift.otCapMinutes === null || shift.otCapMinutes === undefined) {
-    return rawOT
-  }
-
-  return Math.min(rawOT, Number(shift.otCapMinutes || 0))
 }
 
 exports.checkIn = async (req, res, next) => {
@@ -183,7 +168,9 @@ exports.checkIn = async (req, res, next) => {
     }
 
     const employee = await prisma.employees.findUnique({
-      where: { id: Number(userId) },
+      where: {
+        id: Number(userId),
+      },
       include: {
         branch: true,
         position: true,
@@ -346,7 +333,9 @@ exports.checkOut = async (req, res, next) => {
     }
 
     const employee = await prisma.employees.findUnique({
-      where: { id: Number(userId) },
+      where: {
+        id: Number(userId),
+      },
       include: {
         branch: true,
         position: true,
@@ -428,10 +417,7 @@ exports.checkOut = async (req, res, next) => {
         selectedShift.checkInTime
       )
 
-    if (
-      now < shiftWindow.windowStart ||
-      now > shiftWindow.checkOutWindowEnd
-    ) {
+    if (now < shiftWindow.windowStart || now > shiftWindow.checkOutWindowEnd) {
       return res.status(400).json({
         message: 'รายการนี้เลยช่วงเวลา Check-out แล้ว กรุณาติดต่อแอดมิน',
       })
@@ -443,8 +429,6 @@ exports.checkOut = async (req, res, next) => {
       selectedShift
     )
 
-    const otMinutes = calculateOTMinutes(now, shiftWindow, selectedShift)
-
     const timeTrackingRecord = await prisma.timeTracking.update({
       where: {
         id: activeCheckIn.id,
@@ -452,7 +436,6 @@ exports.checkOut = async (req, res, next) => {
       data: {
         checkOut: now,
         earlyLeaveMinutes,
-        otMinutes,
         checkOutNote: note || null,
       },
       include: {
@@ -464,14 +447,11 @@ exports.checkOut = async (req, res, next) => {
       message:
         earlyLeaveMinutes > 0
           ? `Check-out successful แต่ออกก่อนเวลา ${earlyLeaveMinutes} นาที`
-          : otMinutes > 0
-            ? `Check-out successful มี OT ${otMinutes} นาที`
-            : 'Check-out successful',
+          : 'Check-out successful',
       branch: branch.name,
       shift: selectedShift.name,
       distance: Math.round(distance),
       earlyLeaveMinutes,
-      otMinutes,
       data: timeTrackingRecord,
     })
   } catch (error) {
@@ -497,7 +477,9 @@ exports.dayOff = async (req, res, next) => {
     }
 
     const employee = await prisma.employees.findUnique({
-      where: { id: Number(employeesId) },
+      where: {
+        id: Number(employeesId),
+      },
       include: {
         position: true,
         branch: true,
@@ -602,7 +584,9 @@ exports.deleteDayOff = async (req, res, next) => {
     const userId = req.user.id
 
     const dayOffRequest = await prisma.dayOff.findUnique({
-      where: { id: requestId },
+      where: {
+        id: requestId,
+      },
     })
 
     if (!dayOffRequest) {
@@ -640,7 +624,9 @@ exports.deleteDayOff = async (req, res, next) => {
     }
 
     await prisma.dayOff.update({
-      where: { id: requestId },
+      where: {
+        id: requestId,
+      },
       data: {
         status: 'CANCELED',
       },

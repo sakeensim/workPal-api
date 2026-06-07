@@ -9,7 +9,10 @@ const getBangkokMonthRange = (year, month) => {
   const lastDay = new Date(year, month, 0).getDate()
 
   const end = new Date(
-    `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}T23:59:59.999+07:00`
+    `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(
+      2,
+      '0'
+    )}T23:59:59.999+07:00`
   )
 
   return { start, end }
@@ -347,10 +350,7 @@ exports.updateUserPosition = async (req, res, next) => {
       })
     }
 
-    const newMaxDayOff = position
-      ? Number(position.maxDayOffPerMonth || 0)
-      : 0
-
+    const newMaxDayOff = position ? Number(position.maxDayOffPerMonth || 0) : 0
     const currentRemaining = Number(employee.remainingDayOffs || 0)
 
     await prisma.employees.update({
@@ -381,8 +381,10 @@ exports.getUserHistory = async (req, res, next) => {
     const monthNum = parseInt(month) || new Date().getMonth() + 1
     const yearNum = parseInt(year) || new Date().getFullYear()
 
-    const { start: startDate, end: endDate } =
-      getBangkokMonthRange(yearNum, monthNum)
+    const { start: startDate, end: endDate } = getBangkokMonthRange(
+      yearNum,
+      monthNum
+    )
 
     const employee = await prisma.employees.findUnique({
       where: { id: Number(userId) },
@@ -399,7 +401,22 @@ exports.getUserHistory = async (req, res, next) => {
           },
           include: {
             shift: true,
+          },
+          orderBy: {
+            checkIn: 'desc',
+          },
         },
+
+        overtimeTrackings: {
+          where: {
+            date: {
+              gte: startDate,
+              lte: endDate,
+            },
+          },
+          include: {
+            branch: true,
+          },
           orderBy: {
             checkIn: 'desc',
           },
@@ -498,11 +515,30 @@ exports.getUserHistory = async (req, res, next) => {
         shiftName: record.shift?.name || null,
         lateMinutes: record.lateMinutes || 0,
         earlyLeaveMinutes: record.earlyLeaveMinutes || 0,
-        otMinutes: record.otMinutes || 0,
         checkInNote: record.checkInNote || null,
         checkOutNote: record.checkOutNote || null,
       })
     })
+
+    const overtimeLogs = (employee.overtimeTrackings || []).map((ot) => ({
+      id: ot.id,
+      date: toBangkokDateKey(ot.date || ot.checkIn),
+      checkIn: ot.checkIn,
+      checkOut: ot.checkOut,
+      noteIn: ot.noteIn || null,
+      noteOut: ot.noteOut || null,
+      otMinutes: ot.otMinutes || 0,
+      status: ot.status,
+      branchId: ot.branchId,
+      branch: ot.branch || null,
+    }))
+
+    const totalOtMinutes = overtimeLogs
+      .filter((ot) => ot.status === 'COMPLETED')
+      .reduce((sum, ot) => sum + Number(ot.otMinutes || 0), 0)
+
+    const activeOvertime =
+      overtimeLogs.find((ot) => ot.status === 'ACTIVE') || null
 
     const approvedDayOffMap = new Map()
 
@@ -524,10 +560,7 @@ exports.getUserHistory = async (req, res, next) => {
       const key = toBangkokDateKey(holiday.date)
       const dayNumber = Number(key.slice(8, 10))
 
-      if (
-        key.slice(0, 7) === selectedMonthKey &&
-        dayNumber <= lastDayToCheck
-      ) {
+      if (key.slice(0, 7) === selectedMonthKey && dayNumber <= lastDayToCheck) {
         attendanceLogs.push({
           date: key,
           status: 'HOLIDAY',
@@ -556,6 +589,7 @@ exports.getUserHistory = async (req, res, next) => {
     }
 
     attendanceLogs.sort((a, b) => new Date(b.date) - new Date(a.date))
+    overtimeLogs.sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn))
 
     const approvedAdvance = employee.advanceSalary
       .filter((item) => item.status === 'APPROVED')
@@ -602,13 +636,17 @@ exports.getUserHistory = async (req, res, next) => {
         lateDays,
         earlyDays,
         dayOffs: approvedDayOffs,
+        totalOtMinutes,
         advanceTaken: approvedAdvance,
         finalSalary: Number(employee.baseSalary || 0) - approvedAdvance,
       },
 
       logs: {
         attendanceLogs,
+        overtimeLogs,
+        activeOvertime,
         timetracking: employee.timetracking,
+        overtimeTrackings: employee.overtimeTrackings,
         dayOff: employee.dayOff,
         advanceSalary: employee.advanceSalary,
       },

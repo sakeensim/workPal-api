@@ -1,5 +1,25 @@
 const prisma = require('../configs/prisma')
 
+const toBoolean = (value) => {
+  if (value === true || value === 'true') return true
+  if (value === false || value === 'false') return false
+  return Boolean(value)
+}
+
+const normalizeOtCapMinutes = (allowOT, otCapMinutes) => {
+  if (!allowOT) return null
+
+  if (
+    otCapMinutes === undefined ||
+    otCapMinutes === null ||
+    otCapMinutes === ''
+  ) {
+    return null
+  }
+
+  return Number(otCapMinutes)
+}
+
 exports.createPosition = async (req, res, next) => {
   try {
     const {
@@ -8,6 +28,8 @@ exports.createPosition = async (req, res, next) => {
       checkInTime,
       checkOutTime,
       maxDayOffPerMonth,
+      allowOT = false,
+      otCapMinutes,
     } = req.body
 
     if (!name || !checkInTime || !checkOutTime) {
@@ -16,14 +38,28 @@ exports.createPosition = async (req, res, next) => {
       })
     }
 
+    const finalAllowOT = toBoolean(allowOT)
+    const finalOtCapMinutes = normalizeOtCapMinutes(
+      finalAllowOT,
+      otCapMinutes
+    )
+
+    if (finalAllowOT && (!finalOtCapMinutes || finalOtCapMinutes <= 0)) {
+      return res.status(400).json({
+        message: 'OT cap minutes is required when allow OT is enabled',
+      })
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const position = await tx.position.create({
         data: {
           name,
-          description,
+          description: description || null,
           checkInTime,
           checkOutTime,
           maxDayOffPerMonth: Number(maxDayOffPerMonth || 0),
+          allowOT: finalAllowOT,
+          otCapMinutes: finalOtCapMinutes,
         },
       })
 
@@ -35,9 +71,6 @@ exports.createPosition = async (req, res, next) => {
           positionId: position.id,
           isDefault: true,
           isActive: true,
-          allowOT: false,
-          otStartAfter: 0,
-          otCapMinutes: null,
         },
       })
 
@@ -53,6 +86,12 @@ exports.createPosition = async (req, res, next) => {
       defaultShift: result.defaultShift,
     })
   } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        message: 'Position name already exists',
+      })
+    }
+
     next(error)
   }
 }
@@ -92,6 +131,8 @@ exports.updatePosition = async (req, res, next) => {
       checkInTime,
       checkOutTime,
       maxDayOffPerMonth,
+      allowOT,
+      otCapMinutes,
     } = req.body
 
     const positionId = Number(id)
@@ -99,6 +140,14 @@ exports.updatePosition = async (req, res, next) => {
     const oldPosition = await prisma.position.findUnique({
       where: {
         id: positionId,
+      },
+      include: {
+        shifts: {
+          where: {
+            isDefault: true,
+          },
+          take: 1,
+        },
       },
     })
 
@@ -115,17 +164,35 @@ exports.updatePosition = async (req, res, next) => {
         ? Number(maxDayOffPerMonth || 0)
         : oldMaxDayOff
 
+    const finalAllowOT =
+      allowOT !== undefined ? toBoolean(allowOT) : Boolean(oldPosition.allowOT)
+
+    const finalOtCapMinutes =
+      otCapMinutes !== undefined
+        ? normalizeOtCapMinutes(finalAllowOT, otCapMinutes)
+        : finalAllowOT
+          ? oldPosition.otCapMinutes
+          : null
+
+    if (finalAllowOT && (!finalOtCapMinutes || Number(finalOtCapMinutes) <= 0)) {
+      return res.status(400).json({
+        message: 'OT cap minutes is required when allow OT is enabled',
+      })
+    }
+
     const addDayOff = Math.max(0, newMaxDayOff - oldMaxDayOff)
 
     const updateData = {
       name: name !== undefined ? name : oldPosition.name,
       description:
-        description !== undefined ? description : oldPosition.description,
+        description !== undefined ? description || null : oldPosition.description,
       checkInTime:
         checkInTime !== undefined ? checkInTime : oldPosition.checkInTime,
       checkOutTime:
         checkOutTime !== undefined ? checkOutTime : oldPosition.checkOutTime,
       maxDayOffPerMonth: newMaxDayOff,
+      allowOT: finalAllowOT,
+      otCapMinutes: finalOtCapMinutes,
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -135,6 +202,28 @@ exports.updatePosition = async (req, res, next) => {
         },
         data: updateData,
       })
+
+      const defaultShift = oldPosition.shifts?.[0]
+
+      if (defaultShift) {
+        await tx.shift.update({
+          where: {
+            id: defaultShift.id,
+          },
+          data: {
+            name:
+              name !== undefined
+                ? `${position.name}_shift`
+                : defaultShift.name,
+            checkInTime:
+              checkInTime !== undefined ? checkInTime : defaultShift.checkInTime,
+            checkOutTime:
+              checkOutTime !== undefined
+                ? checkOutTime
+                : defaultShift.checkOutTime,
+          },
+        })
+      }
 
       const employees = await tx.employees.findMany({
         where: {
@@ -172,6 +261,12 @@ exports.updatePosition = async (req, res, next) => {
       data: result,
     })
   } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        message: 'Position name already exists',
+      })
+    }
+
     next(error)
   }
 }

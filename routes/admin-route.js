@@ -12,6 +12,7 @@ const positionController = require('../controllers/position-controller')
 const holidayController = require('../controllers/holiday-controller')
 const calendarController = require('../controllers/calendar-controller')
 const shiftController = require('../controllers/shift-controller')
+const overtimeController = require('../controllers/overtime-controller')
 // Owner only: User Management
 router.get('/user/list', authenticate, ownerAuth, userController.listUsers)
 router.post('/user/update-role', authenticate, ownerAuth, userController.updateRole)
@@ -64,5 +65,11 @@ router.delete('/admin/shift/:id',authenticate,adminAuth,shiftController.deleteSh
 router.post('/admin/assign-shift',authenticate,adminAuth,shiftController.assignShift)
 router.delete('/admin/remove-assigned-shift',authenticate,adminAuth,shiftController.removeAssignedShift)
 router.get('/admin/employee-shifts',authenticate,adminAuth,shiftController.getEmployeeShifts)
+
+// Overtime - User
+
+// Overtime - Admin
+router.get('/admin/overtimes', authenticate, adminAuth, overtimeController.getAllOvertimes)
+router.patch('/admin/overtime/cancel/:id', authenticate, adminAuth, overtimeController.cancelOvertime)
 
 module.exports = router

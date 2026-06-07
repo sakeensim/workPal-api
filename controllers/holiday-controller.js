@@ -191,6 +191,18 @@ exports.deleteHoliday = async (req, res, next) => {
   try {
     const { id } = req.params
 
+    const holiday = await prisma.storeHoliday.findUnique({
+      where: {
+        id: Number(id),
+      },
+    })
+
+    if (!holiday) {
+      return res.status(404).json({
+        message: 'Holiday not found',
+      })
+    }
+
     await prisma.storeHoliday.delete({
       where: {
         id: Number(id),

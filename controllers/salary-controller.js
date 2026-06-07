@@ -102,35 +102,39 @@ exports.salaryAdvance = async (req, res, next) => {
 }
 
 exports.updateSalary = async (req, res, next) => {
-    try {
-        const { id, baseSalary } = req.body;
+  try {
+    const { id, baseSalary } = req.body
 
-        if (!req.headers.authorization) {
-            return res.status(401).json({ message: 'Missing Token' });
-        }
-
-        if (req.user.role !== 'ADMIN') {
-            return res.status(403).json({ message: 'Unauthorized' });
-        }
-
-        if (!id || isNaN(baseSalary) || baseSalary < 0) {
-            return res.status(400).json({ message: 'Invalid salary amount' });
-        }
-
-        // Convert ID to a number (assuming your DB uses numeric IDs)
-        const employeeId = parseInt(id, 10);
-
-        const updatedUser = await prisma.employees.update({
-            where: { id: employeeId },
-            data: { baseSalary: parseInt(baseSalary, 10) } 
-        });
-
-        res.status(200).json({ message: "Salary updated successfully", user: updatedUser });
-    } catch (error) {
-        console.error("Error updating salary:", error);
-        next(error);
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'OWNER') {
+      return res.status(403).json({
+        message: 'Unauthorized',
+      })
     }
-};
+
+    if (!id || isNaN(baseSalary) || Number(baseSalary) < 0) {
+      return res.status(400).json({
+        message: 'Invalid salary amount',
+      })
+    }
+
+    const updatedUser = await prisma.employees.update({
+      where: {
+        id: Number(id),
+      },
+      data: {
+        baseSalary: Number(baseSalary),
+      },
+    })
+
+    res.status(200).json({
+      message: 'Salary updated successfully',
+      user: updatedUser,
+    })
+  } catch (error) {
+    console.error('Error updating salary:', error)
+    next(error)
+  }
+}
 
 
 

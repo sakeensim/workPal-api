@@ -6,6 +6,7 @@ const shiftController = require('../controllers/shift-controller')
 const {authenticate} = require('../middleware/authenticate')
 const { salaryAdvance } = require('../controllers/salary-controller')
 const calendarController = require('../controllers/calendar-controller')
+const overtimeController = require('../controllers/overtime-controller')
 //const { checkAllowedIP } = require('../middleware/checkAllowedIP')
 
 
@@ -38,6 +39,11 @@ router.get('/user/my-shifts',authenticate,shiftController.getMyShifts)
 
 router.get('/calendar/user',authenticate,calendarController.getUserCalendar)
 router.post('/admin/calendar-note', authenticate, calendarController.createCalendarNote)
+
+router.post('/user/overtime/start', authenticate, overtimeController.startOvertime)
+router.patch('/user/overtime/end', authenticate, overtimeController.endOvertime)
+router.get('/user/overtime/active', authenticate, overtimeController.getActiveOvertime)
+router.get('/user/overtimes', authenticate, overtimeController.getMyOvertimes)
 
 module.exports = router
 

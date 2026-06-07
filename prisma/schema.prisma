@@ -19,9 +19,10 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  employees     Employees[]
-  holidays      StoreHoliday[]
-  calendarNotes CalendarNote[]
+  employees         Employees[]
+  holidays          StoreHoliday[]
+  calendarNotes     CalendarNote[]
+  overtimeTrackings OvertimeTracking[]
 }
 
 model Employees {
@@ -38,9 +39,9 @@ model Employees {
   updatedAt        DateTime @updatedAt
   role             Role     @default(USER)
 
-  remainingDayOffs      Int @default(0)
-  lastDayOffResetMonth   Int?
-  lastDayOffResetYear    Int?
+  remainingDayOffs     Int @default(0)
+  lastDayOffResetMonth Int?
+  lastDayOffResetYear  Int?
 
   branchId Int?
   branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -48,11 +49,12 @@ model Employees {
   positionId Int?
   position   Position? @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
-  timetracking  TimeTracking[]
-  dayOff        DayOff[]
-  advanceSalary AdvanceSalary[]
-  salaryRecord  SalaryRecord[]
-  employeeShifts EmployeeShift[]
+  timetracking      TimeTracking[]
+  overtimeTrackings OvertimeTracking[]
+  dayOff            DayOff[]
+  advanceSalary     AdvanceSalary[]
+  salaryRecord      SalaryRecord[]
+  employeeShifts    EmployeeShift[]
 }
 
 enum Role {
@@ -77,8 +79,39 @@ model TimeTracking {
 
   shiftId Int?
   shift   Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+}
 
-  otMinutes Int @default(0)
+model OvertimeTracking {
+  id       Int       @id @default(autoincrement())
+  checkIn  DateTime  @default(now())
+  checkOut DateTime?
+  date     DateTime  @default(now())
+
+  noteIn    String?
+  noteOut   String?
+  otMinutes Int      @default(0)
+  status    OTStatus @default(ACTIVE)
+
+  employeesId Int?
+  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: SetNull)
+
+  branchId Int?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeesId])
+  @@index([branchId])
+  @@index([date])
+  @@index([status])
+}
+
+enum OTStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  EXPIRED
 }
 
 model DayOff {
@@ -124,23 +157,27 @@ model SalaryRecord {
 }
 
 model Position {
-  id                 Int      @id @default(autoincrement())
-  name               String   @unique
-  description        String?
-  checkInTime        String
-  checkOutTime       String
-  maxDayOffPerMonth  Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                Int      @id @default(autoincrement())
+  name              String   @unique
+  description       String?
+  checkInTime       String
+  checkOutTime      String
+  maxDayOffPerMonth Int      @default(0)
+
+  allowOT      Boolean @default(false)
+  otCapMinutes Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   employees Employees[]
   shifts    Shift[]
 }
 
 model StoreHoliday {
-  id        Int      @id @default(autoincrement())
-  date      DateTime
-  title     String?
+  id    Int      @id @default(autoincrement())
+  date  DateTime
+  title String?
 
   branchId Int
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
@@ -157,9 +194,6 @@ model Shift {
   checkOutTime String
   isDefault    Boolean  @default(false)
   isActive     Boolean  @default(true)
-  allowOT      Boolean  @default(false)
-  otStartAfter Int      @default(0)
-  otCapMinutes Int?
 
   positionId Int
   position   Position @relation(fields: [positionId], references: [id], onDelete: Cascade)

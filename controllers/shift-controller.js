@@ -1,5 +1,11 @@
 const prisma = require('../configs/prisma')
 
+const toBoolean = (value) => {
+  if (value === true || value === 'true') return true
+  if (value === false || value === 'false') return false
+  return false
+}
+
 const getBangkokDayRange = (dateInput) => {
   const date = dateInput ? new Date(dateInput) : new Date()
 
@@ -25,9 +31,6 @@ exports.createShift = async (req, res, next) => {
       checkOutTime,
       positionId,
       isDefault = false,
-      allowOT = false,
-      otStartAfter = 0,
-      otCapMinutes = null,
     } = req.body
 
     if (!name || !checkInTime || !checkOutTime || !positionId) {
@@ -37,7 +40,9 @@ exports.createShift = async (req, res, next) => {
     }
 
     const position = await prisma.position.findUnique({
-      where: { id: Number(positionId) },
+      where: {
+        id: Number(positionId),
+      },
     })
 
     if (!position) {
@@ -47,7 +52,7 @@ exports.createShift = async (req, res, next) => {
     }
 
     const shift = await prisma.$transaction(async (tx) => {
-      if (isDefault) {
+      if (toBoolean(isDefault)) {
         await tx.shift.updateMany({
           where: {
             positionId: Number(positionId),
@@ -65,13 +70,7 @@ exports.createShift = async (req, res, next) => {
           checkInTime,
           checkOutTime,
           positionId: Number(positionId),
-          isDefault: Boolean(isDefault),
-          allowOT: Boolean(allowOT),
-          otStartAfter: Number(otStartAfter || 0),
-          otCapMinutes:
-            otCapMinutes === null || otCapMinutes === ''
-              ? null
-              : Number(otCapMinutes),
+          isDefault: toBoolean(isDefault),
         },
         include: {
           position: true,
@@ -133,13 +132,12 @@ exports.updateShift = async (req, res, next) => {
       positionId,
       isDefault,
       isActive,
-      allowOT,
-      otStartAfter,
-      otCapMinutes,
     } = req.body
 
     const oldShift = await prisma.shift.findUnique({
-      where: { id: Number(id) },
+      where: {
+        id: Number(id),
+      },
     })
 
     if (!oldShift) {
@@ -151,8 +149,11 @@ exports.updateShift = async (req, res, next) => {
     const finalPositionId =
       positionId !== undefined ? Number(positionId) : oldShift.positionId
 
+    const finalIsDefault =
+      isDefault !== undefined ? toBoolean(isDefault) : oldShift.isDefault
+
     const updatedShift = await prisma.$transaction(async (tx) => {
-      if (isDefault === true) {
+      if (finalIsDefault) {
         await tx.shift.updateMany({
           where: {
             positionId: finalPositionId,
@@ -168,27 +169,19 @@ exports.updateShift = async (req, res, next) => {
       }
 
       return tx.shift.update({
-        where: { id: Number(id) },
+        where: {
+          id: Number(id),
+        },
         data: {
-          name,
-          checkInTime,
-          checkOutTime,
+          name: name !== undefined ? name : undefined,
+          checkInTime: checkInTime !== undefined ? checkInTime : undefined,
+          checkOutTime: checkOutTime !== undefined ? checkOutTime : undefined,
           positionId:
             positionId !== undefined ? Number(positionId) : undefined,
           isDefault:
-            isDefault !== undefined ? Boolean(isDefault) : undefined,
+            isDefault !== undefined ? toBoolean(isDefault) : undefined,
           isActive:
-            isActive !== undefined ? Boolean(isActive) : undefined,
-          allowOT:
-            allowOT !== undefined ? Boolean(allowOT) : undefined,
-          otStartAfter:
-            otStartAfter !== undefined ? Number(otStartAfter || 0) : undefined,
-          otCapMinutes:
-            otCapMinutes !== undefined
-              ? otCapMinutes === null || otCapMinutes === ''
-                ? null
-                : Number(otCapMinutes)
-              : undefined,
+            isActive !== undefined ? toBoolean(isActive) : undefined,
         },
         include: {
           position: true,
@@ -210,7 +203,9 @@ exports.deleteShift = async (req, res, next) => {
     const { id } = req.params
 
     const shift = await prisma.shift.findUnique({
-      where: { id: Number(id) },
+      where: {
+        id: Number(id),
+      },
       include: {
         employeeShifts: true,
       },
@@ -235,7 +230,9 @@ exports.deleteShift = async (req, res, next) => {
     }
 
     await prisma.shift.delete({
-      where: { id: Number(id) },
+      where: {
+        id: Number(id),
+      },
     })
 
     res.json({
@@ -257,7 +254,9 @@ exports.assignShift = async (req, res, next) => {
     }
 
     const employee = await prisma.employees.findUnique({
-      where: { id: Number(employeesId) },
+      where: {
+        id: Number(employeesId),
+      },
       include: {
         position: true,
       },
@@ -270,7 +269,9 @@ exports.assignShift = async (req, res, next) => {
     }
 
     const shift = await prisma.shift.findUnique({
-      where: { id: Number(shiftId) },
+      where: {
+        id: Number(shiftId),
+      },
     })
 
     if (!shift || !shift.isActive) {
