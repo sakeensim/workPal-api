@@ -161,23 +161,61 @@ exports.startOvertime = async (req, res, next) => {
       }
     }
 
-    const activeWorkTime = await prisma.timeTracking.findFirst({
+    const latestWorkTime = await prisma.timeTracking.findFirst({
       where: {
         employeesId: Number(userId),
         checkIn: {
           not: null,
         },
-        checkOut: null,
+      },
+      include: {
+        shift: true,
       },
       orderBy: {
         checkIn: 'desc',
       },
     })
 
-    if (activeWorkTime) {
-      return res.status(400).json({
-        message: 'กรุณา Check-out งานปกติก่อนเริ่ม OT',
-      })
+    if (latestWorkTime && !latestWorkTime.checkOut) {
+      const latestShift = latestWorkTime.shift
+
+      if (latestShift?.checkInTime) {
+        const [shiftStartHour, shiftStartMinute] = latestShift.checkInTime
+          .split(':')
+          .map(Number)
+
+        const windowStart = new Date(now)
+
+        windowStart.setHours(shiftStartHour)
+        windowStart.setMinutes(shiftStartMinute)
+        windowStart.setSeconds(0)
+        windowStart.setMilliseconds(0)
+
+        windowStart.setMinutes(windowStart.getMinutes() - 30)
+
+        const windowEnd = new Date(windowStart)
+        windowEnd.setHours(windowEnd.getHours() + 24)
+
+        if (now < windowStart) {
+          windowStart.setDate(windowStart.getDate() - 1)
+          windowEnd.setDate(windowEnd.getDate() - 1)
+        }
+
+        const checkInTime = new Date(latestWorkTime.checkIn)
+
+        const isSameShiftWindow =
+          checkInTime >= windowStart && checkInTime < windowEnd
+
+        if (isSameShiftWindow) {
+          return res.status(400).json({
+            message: 'กรุณา Check-out งานปกติก่อนเริ่ม OT',
+            shiftCheckIn: latestWorkTime.checkIn,
+            shiftCheckInTime: latestShift.checkInTime,
+            windowStart,
+            windowEnd,
+          })
+        }
+      }
     }
 
     const { distance, isInside } = validateLocation({
