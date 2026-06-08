@@ -421,7 +421,7 @@ exports.getMyShifts = async (req, res, next) => {
       })
     }
 
-    if (!employee.positionId) {
+    if (!employee.positionId || !employee.position) {
       return res.status(400).json({
         message: 'พนักงานยังไม่ได้ถูกกำหนดตำแหน่ง',
       })
@@ -440,6 +440,14 @@ exports.getMyShifts = async (req, res, next) => {
 
     res.json({
       result: shifts,
+      position: {
+        id: employee.position.id,
+        name: employee.position.name,
+        allowOT: Boolean(employee.position.allowOT),
+        otCapMinutes: employee.position.otCapMinutes || 0,
+      },
+      allowOT: Boolean(employee.position.allowOT),
+      otCapMinutes: employee.position.otCapMinutes || 0,
     })
   } catch (error) {
     next(error)
