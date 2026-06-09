@@ -4,6 +4,8 @@ exports.salaryAdvance = async (req, res, next) => {
   try {
     const { date, amount } = req.body
 
+    const ADVANCE_CAP = 1000
+
     if (!date || !amount || isNaN(amount) || Number(amount) <= 0) {
       return res.status(400).json({
         message: 'Invalid salary advance request',
@@ -23,53 +25,46 @@ exports.salaryAdvance = async (req, res, next) => {
     }
 
     const requestAmount = Number(amount)
-
     const requestDate = new Date(date)
 
     const year = requestDate.getFullYear()
     const month = requestDate.getMonth()
 
     const monthStart = new Date(year, month, 1)
-    const monthEnd = new Date(
-      year,
-      month + 1,
-      0,
-      23,
-      59,
-      59,
-      999
-    )
+    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999)
 
-    const approvedThisMonth =
-      await prisma.advanceSalary.aggregate({
-        where: {
-          employeesId: req.user.id,
-
-          status: 'APPROVED',
-
-          requestDate: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
+    const approvedThisMonth = await prisma.advanceSalary.aggregate({
+      where: {
+        employeesId: req.user.id,
+        status: 'APPROVED',
+        requestDate: {
+          gte: monthStart,
+          lte: monthEnd,
         },
+      },
+      _sum: {
+        amount: true,
+      },
+    })
 
-        _sum: {
-          amount: true,
-        },
-      })
-
-    const usedAdvance = Number(
-      approvedThisMonth._sum.amount || 0
-    )
+    const usedAdvance = Number(approvedThisMonth._sum.amount || 0)
 
     const baseSalary = Number(employee.baseSalary || 0)
+
     if (baseSalary <= 0) {
-        return res.status(400).json({
-            message: 'ยังไม่ได้กำหนดเงินเดือนพื้นฐาน',
-        })
+      return res.status(400).json({
+        message: 'ยังไม่ได้กำหนดเงินเดือนพื้นฐาน',
+      })
     }
-    const remainingAdvanceSalary =
-      baseSalary - usedAdvance
+
+    const monthlyAdvanceLimit = Math.min(baseSalary, ADVANCE_CAP)
+    const remainingAdvanceSalary = monthlyAdvanceLimit - usedAdvance
+
+    if (remainingAdvanceSalary <= 0) {
+      return res.status(400).json({
+        message: `เดือนนี้เบิกล่วงหน้าครบ ${monthlyAdvanceLimit} บาทแล้ว`,
+      })
+    }
 
     if (requestAmount > remainingAdvanceSalary) {
       return res.status(400).json({
@@ -77,23 +72,19 @@ exports.salaryAdvance = async (req, res, next) => {
       })
     }
 
-    const salaryTaked =
-      await prisma.advanceSalary.create({
-        data: {
-          requestDate,
-          amount: requestAmount,
-          employeesId: req.user.id,
-        },
-      })
+    const salaryTaked = await prisma.advanceSalary.create({
+      data: {
+        requestDate,
+        amount: requestAmount,
+        employeesId: req.user.id,
+      },
+    })
 
     res.json({
-      message:
-        'Salary Advance request was sent to admin',
-
+      message: 'Salary Advance request was sent to admin',
       data: salaryTaked,
-
-      remainingAdvanceSalary:
-        remainingAdvanceSalary - requestAmount,
+      monthlyAdvanceLimit,
+      remainingAdvanceSalary: remainingAdvanceSalary - requestAmount,
     })
   } catch (error) {
     console.error('Error in salaryAdvance:', error)
