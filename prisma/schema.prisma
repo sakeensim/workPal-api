@@ -79,6 +79,8 @@ model TimeTracking {
 
   shiftId Int?
   shift   Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  
+  @@unique([employeesId, date, shiftId])
 }
 
 model OvertimeTracking {

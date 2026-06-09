@@ -316,7 +316,13 @@ exports.checkIn = async (req, res, next) => {
       lateMinutes,
       data: timeTrackingRecord,
     })
-  } catch (error) {
+  }  catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        message: 'คุณ Check-in ในรอบกะนี้ไปแล้ว',
+      })
+    }
+
     next(error)
   }
 }
