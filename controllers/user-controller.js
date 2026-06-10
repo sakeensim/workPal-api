@@ -324,9 +324,12 @@ exports.updateUserPosition = async (req, res, next) => {
     const { id } = req.params
     const { positionId } = req.body
 
+    const employeeId = Number(id)
+    const newPositionId = positionId ? Number(positionId) : null
+
     const employee = await prisma.employees.findUnique({
       where: {
-        id: Number(id),
+        id: employeeId,
       },
     })
 
@@ -336,37 +339,67 @@ exports.updateUserPosition = async (req, res, next) => {
       })
     }
 
-    const position = positionId
+    const position = newPositionId
       ? await prisma.position.findUnique({
           where: {
-            id: Number(positionId),
+            id: newPositionId,
           },
         })
       : null
 
-    if (positionId && !position) {
+    if (newPositionId && !position) {
       return res.status(404).json({
         message: 'Position not found',
       })
     }
 
-    const newMaxDayOff = position ? Number(position.maxDayOffPerMonth || 0) : 0
-    const currentRemaining = Number(employee.remainingDayOffs || 0)
+    let remainingDayOffs = 0
 
-    await prisma.employees.update({
+    if (position) {
+      const now = new Date()
+
+      const year = now.getFullYear()
+      const month = now.getMonth()
+
+      const monthStart = new Date(year, month, 1)
+      const monthEnd = new Date(year, month + 1, 0, 23, 59, 59, 999)
+
+      const approvedDayOffsThisMonth = await prisma.dayOff.count({
+        where: {
+          employeesId: employeeId,
+          status: 'APPROVED',
+          date: {
+            gte: monthStart,
+            lte: monthEnd,
+          },
+        },
+      })
+
+      const maxDayOffPerMonth = Number(position.maxDayOffPerMonth || 0)
+
+      remainingDayOffs = Math.max(
+        0,
+        maxDayOffPerMonth - approvedDayOffsThisMonth
+      )
+    }
+
+    const updatedEmployee = await prisma.employees.update({
       where: {
-        id: Number(id),
+        id: employeeId,
       },
       data: {
-        positionId: positionId ? Number(positionId) : null,
-        remainingDayOffs: position
-          ? Math.min(currentRemaining, newMaxDayOff)
-          : 0,
+        positionId: newPositionId,
+        remainingDayOffs,
+      },
+      include: {
+        position: true,
+        branch: true,
       },
     })
 
     res.json({
-      message: 'Update position success',
+      message: 'Update user position success',
+      data: updatedEmployee,
     })
   } catch (error) {
     next(error)
