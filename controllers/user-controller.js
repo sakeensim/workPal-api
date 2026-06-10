@@ -133,8 +133,13 @@ exports.myProfile = async (req, res, next) => {
       include: {
         branch: true,
         position: true,
+        advanceSalary: {
+          orderBy: {
+            requestDate: 'desc',
+          },
+        },
       },
-    })
+    })      
 
     res.json({
       result: profile,
@@ -150,7 +155,7 @@ exports.getUserApprovedRequests = async (req, res, next) => {
 
     const approvedSalaryRequests = await prisma.advanceSalary.findMany({
       where: {
-        employeesId: userId,
+        employeesId: Number(userId),
         status: 'APPROVED',
       },
       orderBy: {
@@ -165,7 +170,7 @@ exports.getUserApprovedRequests = async (req, res, next) => {
 
     const approvedDayOffRequests = await prisma.dayOff.findMany({
       where: {
-        employeesId: userId,
+        employeesId: Number(userId),
         status: 'APPROVED',
       },
       orderBy: {
