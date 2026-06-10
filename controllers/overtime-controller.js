@@ -121,44 +121,34 @@ exports.startOvertime = async (req, res, next) => {
       },
     })
 
-    if (latestOvertime) {
-      if (latestOvertime.checkOut) {
-        const minutesAfterLastCheckout = calculateMinutes(
-          latestOvertime.checkOut,
-          now
-        )
+    if (
+      latestOvertime &&
+      latestOvertime.status === 'ACTIVE' &&
+      !latestOvertime.checkOut
+    ) {
+      const activeLimitTime = addMinutes(
+        latestOvertime.checkIn,
+        otCapMinutes + 180
+      )
 
-        if (minutesAfterLastCheckout <= 180) {
-          return res.status(400).json({
-            message: 'ต้องห่างจาก OT รอบล่าสุดเกิน 3 ชั่วโมงก่อนเริ่ม OT ใหม่',
-            minutesAfterLastCheckout,
-          })
-        }
-      } else {
-        const activeLimitTime = addMinutes(
-          latestOvertime.checkIn,
-          otCapMinutes + 180
-        )
-
-        if (now <= activeLimitTime) {
-          return res.status(400).json({
-            message: 'คุณมี OT ที่ยังไม่ได้จบอยู่',
-            activeLimitTime,
-          })
-        }
-
-        await prisma.overtimeTracking.update({
-          where: {
-            id: latestOvertime.id,
-          },
-          data: {
-            status: 'EXPIRED',
-            otMinutes: 0,
-            noteOut:
-              'System expired because OT was not checked out within cap + 3 hours',
-          },
+      if (now <= activeLimitTime) {
+        return res.status(400).json({
+          message: 'คุณมี OT ที่ยังไม่ได้ check-out อยู่ กรุณา check-out OT ก่อน',
+          activeLimitTime,
         })
       }
+
+      await prisma.overtimeTracking.update({
+        where: {
+          id: latestOvertime.id,
+        },
+        data: {
+          status: 'EXPIRED',
+          otMinutes: 0,
+          noteOut:
+            'System expired because OT was not checked out within cap + 3 hours',
+        },
+      })
     }
 
     const latestWorkTime = await prisma.timeTracking.findFirst({
@@ -465,7 +455,12 @@ exports.getMyOvertimes = async (req, res, next) => {
     })
 
     const totalOtMinutes = overtimes
-      .filter((item) => item.status === 'COMPLETED')
+      .filter(
+        (item) =>
+          item.checkIn &&
+          item.checkOut &&
+          item.status === 'COMPLETED'
+      )
       .reduce((sum, item) => sum + Number(item.otMinutes || 0), 0)
 
     res.json({
@@ -536,7 +531,12 @@ exports.getAllOvertimes = async (req, res, next) => {
     })
 
     const totalOtMinutes = overtimes
-      .filter((item) => item.status === 'COMPLETED')
+      .filter(
+        (item) =>
+          item.checkIn &&
+          item.checkOut &&
+          item.status === 'COMPLETED'
+      )
       .reduce((sum, item) => sum + Number(item.otMinutes || 0), 0)
 
     res.json({
