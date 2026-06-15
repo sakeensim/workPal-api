@@ -4,7 +4,7 @@ exports.salaryAdvance = async (req, res, next) => {
   try {
     const { date, amount } = req.body
 
-    const ADVANCE_CAP = 1000
+    const ADVANCE_PER_REQUEST = 1000
 
     if (!date || !amount || isNaN(amount) || Number(amount) <= 0) {
       return res.status(400).json({
@@ -25,6 +25,14 @@ exports.salaryAdvance = async (req, res, next) => {
     }
 
     const requestAmount = Number(amount)
+
+    // จำกัดต่อครั้ง
+    if (requestAmount > ADVANCE_PER_REQUEST) {
+      return res.status(400).json({
+        message: `เบิกได้ไม่เกิน ${ADVANCE_PER_REQUEST} บาทต่อครั้ง`,
+      })
+    }
+
     const requestDate = new Date(date)
 
     const year = requestDate.getFullYear()
@@ -47,7 +55,9 @@ exports.salaryAdvance = async (req, res, next) => {
       },
     })
 
-    const usedAdvance = Number(approvedThisMonth._sum.amount || 0)
+    const usedAdvance = Number(
+      approvedThisMonth._sum.amount || 0
+    )
 
     const baseSalary = Number(employee.baseSalary || 0)
 
@@ -57,8 +67,11 @@ exports.salaryAdvance = async (req, res, next) => {
       })
     }
 
-    const monthlyAdvanceLimit = Math.min(baseSalary, ADVANCE_CAP)
-    const remainingAdvanceSalary = monthlyAdvanceLimit - usedAdvance
+    // จำกัดรวมทั้งเดือนไม่เกินเงินเดือน
+    const monthlyAdvanceLimit = baseSalary
+
+    const remainingAdvanceSalary =
+      monthlyAdvanceLimit - usedAdvance
 
     if (remainingAdvanceSalary <= 0) {
       return res.status(400).json({
@@ -68,7 +81,7 @@ exports.salaryAdvance = async (req, res, next) => {
 
     if (requestAmount > remainingAdvanceSalary) {
       return res.status(400).json({
-        message: `เบิกล่วงหน้าได้อีกไม่เกิน ${remainingAdvanceSalary} บาท`,
+        message: `เบิกได้อีกไม่เกิน ${remainingAdvanceSalary} บาท`,
       })
     }
 
@@ -84,7 +97,8 @@ exports.salaryAdvance = async (req, res, next) => {
       message: 'Salary Advance request was sent to admin',
       data: salaryTaked,
       monthlyAdvanceLimit,
-      remainingAdvanceSalary: remainingAdvanceSalary - requestAmount,
+      remainingAdvanceSalary:
+        remainingAdvanceSalary - requestAmount,
     })
   } catch (error) {
     console.error('Error in salaryAdvance:', error)
