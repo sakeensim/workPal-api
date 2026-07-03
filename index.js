@@ -3,7 +3,7 @@ const cors = require('cors')
 const morgan = require('morgan')
 
 require('./utils/resetDayOffCron')
-
+require('./utils/history-snapshot-cron')
 const app = express()
 
 app.set("trust proxy", true)

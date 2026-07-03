@@ -6,6 +6,28 @@ const toBoolean = (value) => {
   return Boolean(value)
 }
 
+const isAdminOrOwner = (user) => {
+  return user?.role === 'ADMIN' || user?.role === 'OWNER'
+}
+
+const getId = (id) => {
+  const parsed = Number(id)
+
+  if (!parsed || Number.isNaN(parsed)) return null
+
+  return parsed
+}
+
+const getActiveEmployeeWhere = () => ({
+  isActive: true,
+  isDeleted: false,
+})
+
+const getActiveBranchWhere = () => ({
+  isActive: true,
+  isDeleted: false,
+})
+
 const normalizeOtCapMinutes = (allowOT, otCapMinutes) => {
   if (!allowOT) return null
 
@@ -20,8 +42,25 @@ const normalizeOtCapMinutes = (allowOT, otCapMinutes) => {
   return Number(otCapMinutes)
 }
 
+const createAudit = async (tx, req, data) => {
+  return tx.auditLog.create({
+    data: {
+      actorId: req.user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      ...data,
+    },
+  })
+}
+
 exports.createPosition = async (req, res, next) => {
   try {
+    if (!isAdminOrOwner(req.user)) {
+      return res.status(403).json({
+        message: 'Not authorized',
+      })
+    }
+
     const {
       name,
       description,
@@ -30,11 +69,33 @@ exports.createPosition = async (req, res, next) => {
       maxDayOffPerMonth,
       allowOT = false,
       otCapMinutes,
+      branchId,
     } = req.body
 
-    if (!name || !checkInTime || !checkOutTime) {
+    if (!name || !checkInTime || !checkOutTime || !branchId) {
       return res.status(400).json({
-        message: 'Name, check-in time and check-out time are required',
+        message: 'Name, check-in time, check-out time and branch are required',
+      })
+    }
+
+    const finalBranchId = getId(branchId)
+
+    if (!finalBranchId) {
+      return res.status(400).json({
+        message: 'Invalid branch id',
+      })
+    }
+
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: finalBranchId,
+        ...getActiveBranchWhere(),
+      },
+    })
+
+    if (!branch) {
+      return res.status(404).json({
+        message: 'Branch not found or inactive',
       })
     }
 
@@ -60,6 +121,12 @@ exports.createPosition = async (req, res, next) => {
           maxDayOffPerMonth: Number(maxDayOffPerMonth || 0),
           allowOT: finalAllowOT,
           otCapMinutes: finalOtCapMinutes,
+          branchId: finalBranchId,
+          isActive: true,
+          isDeleted: false,
+        },
+        include: {
+          branch: true,
         },
       })
 
@@ -71,7 +138,29 @@ exports.createPosition = async (req, res, next) => {
           positionId: position.id,
           isDefault: true,
           isActive: true,
+          isDeleted: false,
         },
+      })
+
+      await createAudit(tx, req, {
+        action: 'ADD_POSITION',
+        entity: 'Position',
+        entityId: position.id,
+        branchId: position.branchId,
+        newValue: {
+          id: position.id,
+          name: position.name,
+          description: position.description,
+          checkInTime: position.checkInTime,
+          checkOutTime: position.checkOutTime,
+          maxDayOffPerMonth: position.maxDayOffPerMonth,
+          allowOT: position.allowOT,
+          otCapMinutes: position.otCapMinutes,
+          branchId: position.branchId,
+          branchName: position.branch?.name || null,
+          defaultShiftId: defaultShift.id,
+        },
+        note: `Create position ${position.name} for branch ${branch.name}`,
       })
 
       return {
@@ -88,7 +177,7 @@ exports.createPosition = async (req, res, next) => {
   } catch (error) {
     if (error.code === 'P2002') {
       return res.status(400).json({
-        message: 'Position name already exists',
+        message: 'Position name already exists in this branch',
       })
     }
 
@@ -98,12 +187,43 @@ exports.createPosition = async (req, res, next) => {
 
 exports.listPositions = async (req, res, next) => {
   try {
-    const positions = await prisma.position.findMany({
-      orderBy: {
-        name: 'asc',
+    const { branchId, activeOnly } = req.query
+
+    const where = {
+      isDeleted: false,
+      branch: {
+        is: getActiveBranchWhere(),
       },
+    }
+
+    if (branchId && branchId !== 'all') {
+      const finalBranchId = getId(branchId)
+
+      if (!finalBranchId) {
+        return res.status(400).json({
+          message: 'Invalid branch id',
+        })
+      }
+
+      where.branchId = finalBranchId
+    }
+
+    if (activeOnly === 'true') {
+      where.isActive = true
+    }
+
+    const positions = await prisma.position.findMany({
+      where,
+      orderBy: [
+        { branchId: 'asc' },
+        { name: 'asc' },
+      ],
       include: {
+        branch: true,
         shifts: {
+          where: {
+            isDeleted: false,
+          },
           orderBy: [
             { isDefault: 'desc' },
             { isActive: 'desc' },
@@ -123,7 +243,19 @@ exports.listPositions = async (req, res, next) => {
 
 exports.updatePosition = async (req, res, next) => {
   try {
-    const { id } = req.params
+    if (!isAdminOrOwner(req.user)) {
+      return res.status(403).json({
+        message: 'Not authorized',
+      })
+    }
+
+    const positionId = getId(req.params.id)
+
+    if (!positionId) {
+      return res.status(400).json({
+        message: 'Invalid position id',
+      })
+    }
 
     const {
       name,
@@ -133,18 +265,24 @@ exports.updatePosition = async (req, res, next) => {
       maxDayOffPerMonth,
       allowOT,
       otCapMinutes,
+      isActive,
+      branchId,
     } = req.body
 
-    const positionId = Number(id)
-
-    const oldPosition = await prisma.position.findUnique({
+    const oldPosition = await prisma.position.findFirst({
       where: {
         id: positionId,
+        isDeleted: false,
+        branch: {
+          is: getActiveBranchWhere(),
+        },
       },
       include: {
+        branch: true,
         shifts: {
           where: {
             isDefault: true,
+            isDeleted: false,
           },
           take: 1,
         },
@@ -154,6 +292,16 @@ exports.updatePosition = async (req, res, next) => {
     if (!oldPosition) {
       return res.status(404).json({
         message: 'Position not found',
+      })
+    }
+
+    if (
+      branchId !== undefined &&
+      Number(branchId) !== Number(oldPosition.branchId)
+    ) {
+      return res.status(400).json({
+        message:
+          'Cannot change branch of existing position. Please create a new position for the new branch.',
       })
     }
 
@@ -180,12 +328,12 @@ exports.updatePosition = async (req, res, next) => {
       })
     }
 
-    const addDayOff = Math.max(0, newMaxDayOff - oldMaxDayOff)
-
     const updateData = {
       name: name !== undefined ? name : oldPosition.name,
       description:
-        description !== undefined ? description || null : oldPosition.description,
+        description !== undefined
+          ? description || null
+          : oldPosition.description,
       checkInTime:
         checkInTime !== undefined ? checkInTime : oldPosition.checkInTime,
       checkOutTime:
@@ -193,6 +341,8 @@ exports.updatePosition = async (req, res, next) => {
       maxDayOffPerMonth: newMaxDayOff,
       allowOT: finalAllowOT,
       otCapMinutes: finalOtCapMinutes,
+      isActive:
+        isActive !== undefined ? toBoolean(isActive) : oldPosition.isActive,
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -201,6 +351,9 @@ exports.updatePosition = async (req, res, next) => {
           id: positionId,
         },
         data: updateData,
+        include: {
+          branch: true,
+        },
       })
 
       const defaultShift = oldPosition.shifts?.[0]
@@ -216,42 +369,53 @@ exports.updatePosition = async (req, res, next) => {
                 ? `${position.name}_shift`
                 : defaultShift.name,
             checkInTime:
-              checkInTime !== undefined ? checkInTime : defaultShift.checkInTime,
+              checkInTime !== undefined
+                ? checkInTime
+                : defaultShift.checkInTime,
             checkOutTime:
               checkOutTime !== undefined
                 ? checkOutTime
                 : defaultShift.checkOutTime,
+            isActive:
+              isActive !== undefined ? toBoolean(isActive) : defaultShift.isActive,
           },
         })
       }
 
-      const employees = await tx.employees.findMany({
-        where: {
-          positionId,
+      await createAudit(tx, req, {
+        action: 'UPDATE_POSITION',
+        entity: 'Position',
+        entityId: position.id,
+        branchId: position.branchId,
+        oldValue: {
+          id: oldPosition.id,
+          name: oldPosition.name,
+          description: oldPosition.description,
+          checkInTime: oldPosition.checkInTime,
+          checkOutTime: oldPosition.checkOutTime,
+          maxDayOffPerMonth: oldPosition.maxDayOffPerMonth,
+          allowOT: oldPosition.allowOT,
+          otCapMinutes: oldPosition.otCapMinutes,
+          isActive: oldPosition.isActive,
+          branchId: oldPosition.branchId,
+          branchName: oldPosition.branch?.name || null,
         },
-        select: {
-          id: true,
-          remainingDayOffs: true,
+        newValue: {
+          id: position.id,
+          name: position.name,
+          description: position.description,
+          checkInTime: position.checkInTime,
+          checkOutTime: position.checkOutTime,
+          maxDayOffPerMonth: position.maxDayOffPerMonth,
+          allowOT: position.allowOT,
+          otCapMinutes: position.otCapMinutes,
+          isActive: position.isActive,
+          branchId: position.branchId,
+          branchName: position.branch?.name || null,
+          remainingDayOffsNotChanged: true,
         },
+        note: `Update position ${position.name}`,
       })
-
-      for (const employee of employees) {
-        const currentRemaining = Number(employee.remainingDayOffs || 0)
-
-        const newRemainingDayOffs = Math.min(
-          newMaxDayOff,
-          currentRemaining + addDayOff
-        )
-
-        await tx.employees.update({
-          where: {
-            id: employee.id,
-          },
-          data: {
-            remainingDayOffs: newRemainingDayOffs,
-          },
-        })
-      }
 
       return position
     })
@@ -263,7 +427,7 @@ exports.updatePosition = async (req, res, next) => {
   } catch (error) {
     if (error.code === 'P2002') {
       return res.status(400).json({
-        message: 'Position name already exists',
+        message: 'Position name already exists in this branch',
       })
     }
 
@@ -273,12 +437,33 @@ exports.updatePosition = async (req, res, next) => {
 
 exports.deletePosition = async (req, res, next) => {
   try {
-    const { id } = req.params
-    const positionId = Number(id)
+    if (!isAdminOrOwner(req.user)) {
+      return res.status(403).json({
+        message: 'Not authorized',
+      })
+    }
 
-    const position = await prisma.position.findUnique({
+    const positionId = getId(req.params.id)
+    const { reason } = req.body || {}
+
+    if (!positionId) {
+      return res.status(400).json({
+        message: 'Invalid position id',
+      })
+    }
+
+    const position = await prisma.position.findFirst({
       where: {
         id: positionId,
+        isDeleted: false,
+      },
+      include: {
+        branch: true,
+        shifts: {
+          where: {
+            isDeleted: false,
+          },
+        },
       },
     })
 
@@ -288,10 +473,31 @@ exports.deletePosition = async (req, res, next) => {
       })
     }
 
-    await prisma.$transaction(async (tx) => {
+    const now = new Date()
+    const deleteReason = reason || 'Deleted by admin'
+
+    const result = await prisma.$transaction(async (tx) => {
+      const affectedEmployees = await tx.employees.findMany({
+        where: {
+          positionId,
+          branchId: position.branchId,
+          ...getActiveEmployeeWhere(),
+        },
+        select: {
+          id: true,
+          firstname: true,
+          lastname: true,
+          email: true,
+          branchId: true,
+          positionId: true,
+        },
+      })
+
       await tx.employees.updateMany({
         where: {
           positionId,
+          branchId: position.branchId,
+          ...getActiveEmployeeWhere(),
         },
         data: {
           positionId: null,
@@ -299,15 +505,80 @@ exports.deletePosition = async (req, res, next) => {
         },
       })
 
-      await tx.position.delete({
+      await tx.shift.updateMany({
+        where: {
+          positionId,
+          isDeleted: false,
+        },
+        data: {
+          isActive: false,
+          isDeleted: true,
+          deletedAt: now,
+          deletedById: req.user.id,
+          deletedReason: deleteReason,
+        },
+      })
+
+      const deletedPosition = await tx.position.update({
         where: {
           id: positionId,
         },
+        data: {
+          isActive: false,
+          isDeleted: true,
+          deletedAt: now,
+          deletedById: req.user.id,
+          deletedReason: deleteReason,
+        },
+        include: {
+          branch: true,
+        },
       })
+
+      await createAudit(tx, req, {
+        action: 'DELETE_POSITION',
+        entity: 'Position',
+        entityId: position.id,
+        branchId: position.branchId,
+        oldValue: {
+          id: position.id,
+          name: position.name,
+          description: position.description,
+          checkInTime: position.checkInTime,
+          checkOutTime: position.checkOutTime,
+          maxDayOffPerMonth: position.maxDayOffPerMonth,
+          allowOT: position.allowOT,
+          otCapMinutes: position.otCapMinutes,
+          isActive: position.isActive,
+          isDeleted: position.isDeleted,
+          branchId: position.branchId,
+          branchName: position.branch?.name || null,
+          shiftIds: position.shifts.map((shift) => shift.id),
+          affectedEmployees,
+        },
+        newValue: {
+          isActive: false,
+          isDeleted: true,
+          deletedAt: deletedPosition.deletedAt,
+          deletedById: req.user.id,
+          affectedEmployeeCount: affectedEmployees.length,
+          deletedShiftCount: position.shifts.length,
+        },
+        note: `Soft delete position ${position.name}`,
+      })
+
+      return {
+        deletedPosition,
+        affectedEmployeeCount: affectedEmployees.length,
+        deletedShiftCount: position.shifts.length,
+      }
     })
 
     res.json({
       message: 'Delete position success',
+      data: result.deletedPosition,
+      affectedEmployeeCount: result.affectedEmployeeCount,
+      deletedShiftCount: result.deletedShiftCount,
     })
   } catch (error) {
     next(error)

@@ -13,6 +13,7 @@ const holidayController = require('../controllers/holiday-controller')
 const calendarController = require('../controllers/calendar-controller')
 const shiftController = require('../controllers/shift-controller')
 const overtimeController = require('../controllers/overtime-controller')
+const auditController = require('../controllers/audit-controller')
 // Owner only: User Management
 router.get('/user/list', authenticate, ownerAuth, userController.listUsers)
 router.post('/user/update-role', authenticate, ownerAuth, userController.updateRole)
@@ -39,13 +40,13 @@ router.delete('/admin/position/:id', authenticate, adminAuth, positionController
 // Holiday management
 router.post('/admin/holiday', authenticate, adminAuth, holidayController.createHoliday)
 router.get('/admin/holidays', authenticate, adminAuth, holidayController.getHolidays)
+router.patch('/admin/holiday/:id', authenticate, holidayController.updateHoliday)
 router.delete('/admin/holiday/:id', authenticate, adminAuth, holidayController.deleteHoliday)
 
 // Admin + Owner
 router.get('/admin/dashboard', authenticate, adminAuth, adminController.getEmployeesDashboard)
-router.get('/admin/Work-time-record', authenticate, adminAuth, adminController.getTimetracking)
 router.get('/admin/getemployee', authenticate, adminAuth, userController.listUsers)
-
+  
 router.get('/admin/pending-requests', authenticate, adminAuth, adminController.getPendingRequests)
 
 router.patch('/admin/salary-approve/:id', authenticate, adminAuth, adminController.approveSalaryRequest)
@@ -71,5 +72,10 @@ router.get('/admin/employee-shifts',authenticate,adminAuth,shiftController.getEm
 // Overtime - Admin
 router.get('/admin/overtimes', authenticate, adminAuth, overtimeController.getAllOvertimes)
 router.patch('/admin/overtime/cancel/:id', authenticate, adminAuth, overtimeController.cancelOvertime)
+
+router.get('/admin/audit-logs', authenticate, ownerAuth, auditController.getAuditLogs)
+router.get('/admin/audit-logs/:id', authenticate, ownerAuth, auditController.getAuditLogById)
+
+router.get("/admin/request-history",authenticate,adminAuth,adminController.getApproveRequestHistory);
 
 module.exports = router

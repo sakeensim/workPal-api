@@ -1,343 +1,714 @@
 const prisma = require("../configs/prisma");
+const { createNotification } = require("../services/notification-service");
 
 const BANGKOK_TIMEZONE = "Asia/Bangkok";
+const MAX_HISTORY_DAYS = 90;
+const DEFAULT_HISTORY_DAYS = 30;
+const DEFAULT_PAGE_LIMIT = 50;
+const MAX_PAGE_LIMIT = 100;
+
+const REQUEST_STATUS = Object.freeze({
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+  CANCELED: "CANCELED",
+});
+
+const REQUEST_ACTION = Object.freeze({
+  APPROVE: "APPROVE_REQUEST",
+  REJECT: "REJECT_REQUEST",
+});
+
+const REQUEST_ENTITY = Object.freeze({
+  DAY_OFF: "DayOff",
+  ADVANCE_SALARY: "AdvanceSalary",
+});
+
+const REQUEST_TYPE = Object.freeze({
+  DAY_OFF: "DAY_OFF",
+  ADVANCE: "ADVANCE",
+});
+
+const bangkokDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: BANGKOK_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 const getBangkokDateString = (date = new Date()) => {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: BANGKOK_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+  return bangkokDateFormatter.format(new Date(date));
 };
 
 const getBangkokDayRange = (dateInput = new Date()) => {
   const bangkokDate = getBangkokDateString(dateInput);
 
-  const start = new Date(`${bangkokDate}T00:00:00.000+07:00`);
-  const end = new Date(`${bangkokDate}T23:59:59.999+07:00`);
-
-  return { start, end };
+  return {
+    start: new Date(`${bangkokDate}T00:00:00.000+07:00`),
+    end: new Date(`${bangkokDate}T23:59:59.999+07:00`),
+  };
 };
 
 const getBangkokMonthRange = (year, month) => {
-  const start = new Date(
-    `${year}-${String(month).padStart(2, "0")}-01T00:00:00.000+07:00`
-  );
-
+  const monthString = String(month).padStart(2, "0");
   const lastDay = new Date(year, month, 0).getDate();
+  const lastDayString = String(lastDay).padStart(2, "0");
 
-  const end = new Date(
-    `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(
-      2,
-      "0"
-    )}T23:59:59.999+07:00`
-  );
-
-  return { start, end };
+  return {
+    start: new Date(`${year}-${monthString}-01T00:00:00.000+07:00`),
+    end: new Date(`${year}-${monthString}-${lastDayString}T23:59:59.999+07:00`),
+  };
 };
 
-exports.getPendingRequests = async (req, res, next) => {
+const getBangkokYearMonth = (date = new Date()) => {
+  const [year, month] = getBangkokDateString(date).split("-").map(Number);
+
+  return { year, month };
+};
+
+const isSameYearMonth = (dateA, dateB) => {
+  return (
+    Number(dateA?.year) === Number(dateB?.year) &&
+    Number(dateA?.month) === Number(dateB?.month)
+  );
+};
+
+const getBangkokDaysAgoStart = (days = DEFAULT_HISTORY_DAYS) => {
+  const { start } = getBangkokDayRange(new Date());
+  start.setDate(start.getDate() - days);
+
+  return start;
+};
+
+const toBangkokDateKey = (date) => getBangkokDateString(date);
+
+const makeHttpError = (statusCode, message, extra = {}) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  Object.assign(error, extra);
+
+  return error;
+};
+
+const controller = (name, handler) => async (req, res, next) => {
   try {
-    if (req.user.role !== "ADMIN" && req.user.role !== "OWNER") {
-      return res.status(403).json({ message: "Not authorized" });
+    await handler(req, res, next);
+  } catch (error) {
+    console.error(`Error in ${name}:`, error);
+
+    if (error.statusCode && !res.headersSent) {
+      const payload = { message: error.message };
+      if (error.data !== undefined) payload.data = error.data;
+
+      return res.status(error.statusCode).json(payload);
     }
 
-    const salaryRequests = await prisma.advanceSalary.findMany({
-      where: { status: "PENDING" },
-      include: {
-        employees: true,
-      },
-    });
-
-    const dayOffRequests = await prisma.dayOff.findMany({
-      where: { status: "PENDING" },
-      include: {
-        employees: true,
-      },
-    });
-
-    const formattedSalaryRequests = salaryRequests.map((request) => ({
-      id: request.id,
-      type: "salary",
-      amount: request.amount,
-      requestDate: request.requestDate,
-      status: request.status,
-      employee: request.employees
-        ? {
-            id: request.employees.id,
-            firstName: request.employees.firstname,
-            lastName: request.employees.lastname,
-            profileImage: request.employees.profileImage,
-            branchId: request.employees.branchId,
-          }
-        : null,
-    }));
-
-    const formattedDayOffRequests = dayOffRequests.map((request) => ({
-      id: request.id,
-      type: "dayoff",
-      reason: request.reason,
-      startDate: request.date,
-      endDate: request.date,
-      status: request.status,
-      employee: request.employees
-        ? {
-            id: request.employees.id,
-            firstName: request.employees.firstname,
-            lastName: request.employees.lastname,
-            profileImage: request.employees.profileImage,
-            branchId: request.employees.branchId,
-          }
-        : null,
-    }));
-
-    const allRequests = [...formattedSalaryRequests, ...formattedDayOffRequests];
-
-    res.json({ data: allRequests });
-  } catch (error) {
-    console.error("Error in getPendingRequests:", error);
-    next(error);
+    if (!res.headersSent) return next(error);
   }
 };
 
-exports.approveSalaryRequest = async (req, res, next) => {
+const isAdminOrOwner = (user) => {
+  return user?.role === "ADMIN" || user?.role === "OWNER";
+};
+
+const assertAdminOrOwner = (user) => {
+  if (!isAdminOrOwner(user)) {
+    throw makeHttpError(403, "Not authorized");
+  }
+};
+
+const getRequestId = (id) => {
+  const parsed = Number(id);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+
+  return parsed;
+};
+
+const assertRequestId = (id) => {
+  const requestId = getRequestId(id);
+
+  if (!requestId) {
+    throw makeHttpError(400, "Invalid request id");
+  }
+
+  return requestId;
+};
+
+const isActiveRecord = (record) => {
+  return record && record.isActive === true && record.isDeleted === false;
+};
+
+const isEmployeeActive = isActiveRecord;
+const isBranchActive = isActiveRecord;
+const isPositionActive = isActiveRecord;
+
+const getActiveEmployeeWhere = () => ({
+  isActive: true,
+  isDeleted: false,
+});
+
+const getActiveBranchWhere = () => ({
+  isActive: true,
+  isDeleted: false,
+});
+
+const getActivePositionWhere = () => ({
+  isActive: true,
+  isDeleted: false,
+});
+
+const getActiveStoreHolidayWhere = () => ({
+  isDeleted: false,
+});
+
+const getEmployeeFullName = (employee) => {
+  return [employee?.firstname, employee?.lastname].filter(Boolean).join(" ");
+};
+
+const getPositionBranchErrorMessage = () => {
+  return "ตำแหน่งของพนักงานไม่ตรงกับสาขา หรือถูกปิดใช้งานแล้ว";
+};
+
+const isEmployeeBranchValid = (employee) => {
+  if (!employee?.branchId) return true;
+
+  return isBranchActive(employee.branch);
+};
+
+const isEmployeePositionValid = (employee) => {
+  if (!employee?.positionId) return false;
+  if (!isPositionActive(employee.position)) return false;
+
+  return Number(employee.position.branchId) === Number(employee.branchId);
+};
+
+const requestEmployeeInclude = {
+  branch: true,
+  position: {
+    include: {
+      branch: true,
+    },
+  },
+};
+
+const requestInclude = {
+  employees: {
+    include: requestEmployeeInclude,
+  },
+};
+
+const safeCreateNotification = async (payload) => {
   try {
-    const { id } = req.params;
+    await createNotification(payload);
+  } catch (error) {
+    console.error("Error creating notification:", error);
+  }
+};
 
-    if (req.user.role !== "ADMIN" && req.user.role !== "OWNER") {
-      return res.status(403).json({
-        message: "Not authorized",
-      });
-    }
+const createAudit = (tx, req, data) => {
+  return tx.auditLog.create({
+    data: {
+      actorId: req.user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+      ...data,
+    },
+  });
+};
 
-    const salaryRequest = await prisma.advanceSalary.findUnique({
+const formatEmployee = (employee) => {
+  if (!employee) return null;
+
+  const validPosition =
+    employee.position &&
+    employee.position.isActive &&
+    !employee.position.isDeleted &&
+    Number(employee.position.branchId) === Number(employee.branchId)
+      ? employee.position
+      : null;
+
+  return {
+    id: employee.id,
+    firstName: employee.firstname,
+    lastName: employee.lastname,
+    firstname: employee.firstname,
+    lastname: employee.lastname,
+    email: employee.email,
+    role: employee.role || null,
+    profileImage: employee.profileImage || null,
+    branchId: employee.branchId || null,
+    branch: employee.branch || null,
+    positionId: employee.positionId || null,
+    position: validPosition,
+  };
+};
+
+const assertReviewableRequest = (request, notFoundMessage, actionText) => {
+  if (!request) {
+    throw makeHttpError(404, notFoundMessage);
+  }
+
+  if (request.status !== REQUEST_STATUS.PENDING) {
+    throw makeHttpError(400, `Only pending requests can be ${actionText}`);
+  }
+};
+
+const assertReviewableEmployee = (employee, options = {}) => {
+  const { requirePosition = false } = options;
+
+  if (!isEmployeeActive(employee)) {
+    throw makeHttpError(404, "Employee not found or inactive");
+  }
+
+  if (!isEmployeeBranchValid(employee)) {
+    throw makeHttpError(400, "สาขาของพนักงานถูกปิดใช้งานหรือถูกลบแล้ว");
+  }
+
+  if (requirePosition && !isEmployeePositionValid(employee)) {
+    throw makeHttpError(400, getPositionBranchErrorMessage());
+  }
+};
+
+const getRequestSortTime = (request) => {
+  return new Date(
+    request.updatedAt || request.requestDate || request.date || request.createdAt
+  ).getTime();
+};
+
+const formatSalaryRequest = (request) => ({
+  id: request.id,
+  type: "salary",
+  amount: request.amount,
+  requestDate: request.requestDate,
+  status: request.status,
+  createdAt: request.createdAt,
+  updatedAt: request.updatedAt,
+  employee: formatEmployee(request.employees),
+});
+
+const formatDayOffRequest = (request) => ({
+  id: request.id,
+  type: "dayoff",
+  reason: request.reason,
+  date: request.date,
+  startDate: request.date,
+  endDate: request.date,
+  status: request.status,
+  createdAt: request.createdAt,
+  updatedAt: request.updatedAt,
+  employee: formatEmployee(request.employees),
+});
+
+const getRequestWhere = ({ includeHistory, days }) => {
+  const baseWhere = {
+    employees: {
+      is: getActiveEmployeeWhere(),
+    },
+  };
+
+  if (!includeHistory) {
+    return {
+      ...baseWhere,
+      status: REQUEST_STATUS.PENDING,
+    };
+  }
+
+  return {
+    AND: [
+      baseWhere,
+      {
+        OR: [
+          {
+            status: REQUEST_STATUS.PENDING,
+          },
+          {
+            status: {
+              in: [REQUEST_STATUS.APPROVED, REQUEST_STATUS.REJECTED],
+            },
+            updatedAt: {
+              gte: getBangkokDaysAgoStart(days),
+            },
+          },
+        ],
+      },
+    ],
+  };
+};
+
+const buildAdvanceAuditData = ({ status, salaryRequest, employee }) => ({
+  action:
+    status === REQUEST_STATUS.APPROVED
+      ? REQUEST_ACTION.APPROVE
+      : REQUEST_ACTION.REJECT,
+  entity: REQUEST_ENTITY.ADVANCE_SALARY,
+  entityId: salaryRequest.id,
+  targetEmployeeId: employee.id,
+  branchId: employee.branchId,
+  oldValue: {
+    status: salaryRequest.status,
+  },
+  newValue: {
+    status,
+    requestType: REQUEST_TYPE.ADVANCE,
+    amount: Number(salaryRequest.amount),
+    requestDate: salaryRequest.requestDate
+      ? salaryRequest.requestDate.toISOString()
+      : null,
+  },
+  note: `${
+    status === REQUEST_STATUS.APPROVED ? "Approve" : "Reject"
+  } advance salary ${Number(salaryRequest.amount)} baht for ${getEmployeeFullName(
+    employee
+  )}`,
+});
+
+const buildDayOffAuditData = ({
+  status,
+  dayOffRequest,
+  employee,
+  oldRemainingDayOffs,
+  newRemainingDayOffs,
+  dayOffQuotaInfo,
+  cancelReason,
+}) => {
+  const isApproved = status === REQUEST_STATUS.APPROVED;
+
+  return {
+    action: isApproved ? REQUEST_ACTION.APPROVE : REQUEST_ACTION.REJECT,
+    entity: REQUEST_ENTITY.DAY_OFF,
+    entityId: dayOffRequest.id,
+    targetEmployeeId: employee.id,
+    branchId: employee.branchId,
+    oldValue: {
+      status: dayOffRequest.status,
+      ...(oldRemainingDayOffs !== undefined
+        ? { remainingDayOffs: oldRemainingDayOffs }
+        : {}),
+    },
+    newValue: {
+      status,
+      requestType: REQUEST_TYPE.DAY_OFF,
+      date: dayOffRequest.date ? dayOffRequest.date.toISOString() : null,
+      reason: dayOffRequest.reason,
+      ...(newRemainingDayOffs !== undefined
+        ? { remainingDayOffs: newRemainingDayOffs }
+        : {}),
+      ...(dayOffQuotaInfo ? { dayOffQuotaInfo } : {}),
+      ...(cancelReason ? { cancelReason } : {}),
+    },
+    note: `${
+      isApproved
+        ? "Approve"
+        : status === REQUEST_STATUS.CANCELED
+        ? "Cancel"
+        : "Reject"
+    } day-off request for ${getEmployeeFullName(employee)}`,
+  };
+};
+
+const sendAdvanceReviewNotification = ({
+  status,
+  salaryRequest,
+  employeeId,
+  createdById,
+}) => {
+  const isApproved = status === REQUEST_STATUS.APPROVED;
+
+  return safeCreateNotification({
+    type: isApproved ? "REQUEST_APPROVED" : "REQUEST_REJECTED",
+    title: isApproved ? "คำขอเบิกเงินได้รับอนุมัติ" : "คำขอเบิกเงินถูกปฏิเสธ",
+    message: isApproved
+      ? `คำขอเบิกเงิน ${Number(
+          salaryRequest.amount
+        ).toLocaleString()} บาทของคุณได้รับอนุมัติแล้ว`
+      : "คำขอเบิกเงินล่วงหน้าของคุณถูกปฏิเสธ",
+    link: "/user/history",
+    entity: REQUEST_ENTITY.ADVANCE_SALARY,
+    entityId: salaryRequest.id,
+    targetType: "USER",
+    targetUserIds: [employeeId],
+    createdById,
+  });
+};
+
+const sendDayOffReviewNotification = ({
+  status,
+  dayOffRequest,
+  employeeId,
+  createdById,
+}) => {
+  const isApproved = status === REQUEST_STATUS.APPROVED;
+  const isCanceled = status === REQUEST_STATUS.CANCELED;
+
+  return safeCreateNotification({
+    type: isApproved ? "REQUEST_APPROVED" : "REQUEST_REJECTED",
+    title: isApproved
+      ? "คำขอลาได้รับอนุมัติ"
+      : isCanceled
+      ? "คำขอลาถูกยกเลิก"
+      : "คำขอลาถูกปฏิเสธ",
+    message: isApproved
+      ? "คำขอลาของคุณได้รับอนุมัติแล้ว"
+      : isCanceled
+      ? "วันที่ขอลาเป็นวันหยุดของสาขา ระบบจึงยกเลิกคำขอ"
+      : "คำขอลาของคุณถูกปฏิเสธ",
+    link: "/user/history",
+    entity: REQUEST_ENTITY.DAY_OFF,
+    entityId: dayOffRequest.id,
+    targetType: "USER",
+    targetUserIds: [employeeId],
+    createdById,
+  });
+};
+
+const getAdvanceSalaryApprovalInfo = async (salaryRequest, employee) => {
+  const { year, month } = getBangkokYearMonth(salaryRequest.requestDate);
+  const { start: monthStart, end: monthEnd } = getBangkokMonthRange(year, month);
+
+  const approvedThisMonth = await prisma.advanceSalary.aggregate({
+    where: {
+      employeesId: employee.id,
+      status: REQUEST_STATUS.APPROVED,
+      requestDate: {
+        gte: monthStart,
+        lte: monthEnd,
+      },
+    },
+    _sum: {
+      amount: true,
+    },
+  });
+
+  const baseSalary = Number(employee.baseSalary || 0);
+  const usedAdvance = Number(approvedThisMonth._sum.amount || 0);
+  const requestAmount = Number(salaryRequest.amount || 0);
+  const remainingAdvanceSalary = baseSalary - usedAdvance;
+
+  if (baseSalary <= 0) {
+    throw makeHttpError(400, "ยังไม่ได้กำหนดเงินเดือนพื้นฐาน");
+  }
+
+  if (requestAmount > remainingAdvanceSalary) {
+    throw makeHttpError(
+      400,
+      `Approve ไม่ได้ เบิกล่วงหน้าได้อีกไม่เกิน ${remainingAdvanceSalary} บาท`
+    );
+  }
+
+  return {
+    requestAmount,
+    remainingAdvanceSalary,
+  };
+};
+
+const updateAdvanceSalaryStatus = async ({
+  req,
+  salaryRequest,
+  employee,
+  status,
+}) => {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.advanceSalary.update({
       where: {
-        id: parseInt(id),
+        id: salaryRequest.id,
+      },
+      data: {
+        status,
       },
       include: {
         employees: true,
       },
     });
 
-    if (!salaryRequest) {
-      return res.status(404).json({
-        message: "Advance salary request not found",
-      });
-    }
-
-    if (salaryRequest.status !== "PENDING") {
-      return res.status(400).json({
-        message: "Only pending requests can be approved",
-      });
-    }
-
-    const employee = salaryRequest.employees;
-
-    if (!employee) {
-      return res.status(404).json({
-        message: "Employee not found",
-      });
-    }
-
-    const requestDate = new Date(salaryRequest.requestDate);
-    const year = requestDate.getFullYear();
-    const month = requestDate.getMonth();
-
-    const { start: monthStart, end: monthEnd } = getBangkokMonthRange(
-      year,
-      month + 1
+    await createAudit(
+      tx,
+      req,
+      buildAdvanceAuditData({ status, salaryRequest, employee })
     );
 
-    const approvedThisMonth = await prisma.advanceSalary.aggregate({
-      where: {
-        employeesId: employee.id,
-        status: "APPROVED",
-        requestDate: {
-          gte: monthStart,
-          lte: monthEnd,
-        },
+    return updated;
+  });
+};
+
+const isDayOffOnStoreHoliday = async ({ date, branchId }) => {
+  const { start, end } = getBangkokDayRange(date);
+
+  return prisma.storeHoliday.findFirst({
+    where: {
+      ...getActiveStoreHolidayWhere(),
+      branchId,
+      date: {
+        gte: start,
+        lte: end,
       },
-      _sum: {
-        amount: true,
+      branch: {
+        is: getActiveBranchWhere(),
       },
-    });
+    },
+  });
+};
 
-    const usedAdvance = Number(approvedThisMonth._sum.amount || 0);
-    const baseSalary = Number(employee.baseSalary || 0);
-    const requestAmount = Number(salaryRequest.amount);
-    const remainingAdvanceSalary = baseSalary - usedAdvance;
-
-    if (requestAmount > remainingAdvanceSalary) {
-      return res.status(400).json({
-        message: `Approve ไม่ได้ เบิกล่วงหน้าได้อีกไม่เกิน ${remainingAdvanceSalary} บาท`,
-      });
-    }
-
-    const updatedRequest = await prisma.advanceSalary.update({
+const cancelDayOffBecauseHoliday = async ({ req, dayOffRequest, employee }) => {
+  const canceledRequest = await prisma.$transaction(async (tx) => {
+    const canceled = await tx.dayOff.update({
       where: {
-        id: parseInt(id),
+        id: dayOffRequest.id,
       },
       data: {
-        status: "APPROVED",
+        status: REQUEST_STATUS.CANCELED,
       },
       include: {
         employees: true,
       },
     });
 
-    res.json({
-      message: "Advance salary request approved successfully",
-      data: updatedRequest,
-      remainingAdvanceSalary: remainingAdvanceSalary - requestAmount,
-    });
-  } catch (error) {
-    console.error("Error in approveSalaryRequest:", error);
-    next(error);
-  }
+    await createAudit(
+      tx,
+      req,
+      buildDayOffAuditData({
+        status: REQUEST_STATUS.CANCELED,
+        dayOffRequest,
+        employee,
+        cancelReason: "STORE_HOLIDAY",
+      })
+    );
+
+    return canceled;
+  });
+
+  await sendDayOffReviewNotification({
+    status: REQUEST_STATUS.CANCELED,
+    dayOffRequest,
+    employeeId: employee.id,
+    createdById: req.user.id,
+  });
+
+  return canceledRequest;
 };
 
-exports.rejectSalaryRequest = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getDayOffApprovalInfo = async ({ tx, dayOffRequest, employee }) => {
+  const currentYearMonth = getBangkokYearMonth(new Date());
+  const requestYearMonth = getBangkokYearMonth(dayOffRequest.date);
+  const isCurrentMonth = isSameYearMonth(currentYearMonth, requestYearMonth);
 
-    if (req.user.role !== "ADMIN" && req.user.role !== "OWNER") {
-      return res.status(403).json({
-        message: "Not authorized",
-      });
+  const remainingDayOffs = Number(employee.remainingDayOffs || 0);
+  const maxDayOffPerMonth = Number(employee.position?.maxDayOffPerMonth || 0);
+
+  if (isCurrentMonth) {
+    if (remainingDayOffs <= 0) {
+      throw makeHttpError(400, "อนุมัติไม่ได้ วันลาคงเหลือไม่พอ");
     }
 
-    const salaryRequest = await prisma.advanceSalary.findUnique({
-      where: {
-        id: parseInt(id),
-      },
-    });
-
-    if (!salaryRequest) {
-      return res.status(404).json({
-        message: "Advance salary request not found",
-      });
-    }
-
-    if (salaryRequest.status !== "PENDING") {
-      return res.status(400).json({
-        message: "Only pending requests can be rejected",
-      });
-    }
-
-    const updatedRequest = await prisma.advanceSalary.update({
-      where: {
-        id: parseInt(id),
-      },
-      data: {
-        status: "REJECTED",
-      },
-    });
-
-    res.json({
-      message: "Advance salary request rejected",
-      data: updatedRequest,
-    });
-  } catch (error) {
-    console.error("Error in rejectSalaryRequest:", error);
-    next(error);
+    return {
+      isCurrentMonth: true,
+      approveBy: "CURRENT_MONTH_REMAINING",
+      shouldDecrementRemainingDayOffs: true,
+      remainingDayOffs,
+      newRemainingDayOffs: remainingDayOffs - 1,
+      maxDayOffPerMonth,
+      approvedDayOffInRequestMonth: null,
+      monthQuotaRemainingBeforeApproval: null,
+      monthQuotaRemainingAfterApproval: null,
+    };
   }
-};
 
-exports.approveDayOffRequest = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+  if (maxDayOffPerMonth <= 0) {
+    throw makeHttpError(
+      400,
+      "ตำแหน่งนี้ยังไม่ได้กำหนดจำนวนวันลาต่อเดือน"
+    );
+  }
 
-    if (req.user.role !== "ADMIN" && req.user.role !== "OWNER") {
-      return res.status(403).json({
-        message: "Not authorized",
-      });
-    }
+  const { start: requestMonthStart, end: requestMonthEnd } =
+    getBangkokMonthRange(requestYearMonth.year, requestYearMonth.month);
 
-    const dayOffRequest = await prisma.dayOff.findUnique({
-      where: {
-        id: parseInt(id),
+  const approvedDayOffInRequestMonth = await tx.dayOff.count({
+    where: {
+      employeesId: employee.id,
+      id: {
+        not: dayOffRequest.id,
       },
-      include: {
-        employees: {
-          include: {
-            position: true,
+      date: {
+        gte: requestMonthStart,
+        lte: requestMonthEnd,
+      },
+      status: REQUEST_STATUS.APPROVED,
+      employees: {
+        is: {
+          ...getActiveEmployeeWhere(),
+          branch: {
+            is: getActiveBranchWhere(),
           },
         },
       },
+    },
+  });
+
+  const monthQuotaRemainingBeforeApproval =
+    maxDayOffPerMonth - approvedDayOffInRequestMonth;
+
+  if (approvedDayOffInRequestMonth < maxDayOffPerMonth) {
+    return {
+      isCurrentMonth: false,
+      approveBy: "REQUEST_MONTH_APPROVED_QUOTA",
+      shouldDecrementRemainingDayOffs: false,
+      remainingDayOffs,
+      newRemainingDayOffs: remainingDayOffs,
+      maxDayOffPerMonth,
+      approvedDayOffInRequestMonth,
+      monthQuotaRemainingBeforeApproval,
+      monthQuotaRemainingAfterApproval: monthQuotaRemainingBeforeApproval - 1,
+    };
+  }
+
+  if (remainingDayOffs <= 0) {
+    throw makeHttpError(
+      400,
+      "อนุมัติไม่ได้ เดือนที่เลือกขอลาครบโควต้าแล้ว และวันลาคงเหลือไม่พอ"
+    );
+  }
+
+  return {
+    isCurrentMonth: false,
+    approveBy: "CURRENT_REMAINING_FALLBACK",
+    shouldDecrementRemainingDayOffs: true,
+    remainingDayOffs,
+    newRemainingDayOffs: remainingDayOffs - 1,
+    maxDayOffPerMonth,
+    approvedDayOffInRequestMonth,
+    monthQuotaRemainingBeforeApproval,
+    monthQuotaRemainingAfterApproval: 0,
+  };
+};
+
+const approveDayOff = async ({ req, dayOffRequest, employee }) => {
+  return prisma.$transaction(async (tx) => {
+    const approvalInfo = await getDayOffApprovalInfo({
+      tx,
+      dayOffRequest,
+      employee,
     });
 
-    if (!dayOffRequest) {
-      return res.status(404).json({
-        message: "Day-off request not found",
-      });
-    }
-
-    if (dayOffRequest.status !== "PENDING") {
-      return res.status(400).json({
-        message: "Only pending requests can be approved",
-      });
-    }
-
-    if (!dayOffRequest.employees?.position) {
-      return res.status(400).json({
-        message: "พนักงานยังไม่ได้ถูกกำหนดตำแหน่ง",
-      });
-    }
-
-    const { start, end } = getBangkokDayRange(dayOffRequest.date);
-
-    const holiday = await prisma.storeHoliday.findFirst({
+    const approved = await tx.dayOff.update({
       where: {
-        branchId: dayOffRequest.employees.branchId,
-        date: {
-          gte: start,
-          lte: end,
-        },
+        id: dayOffRequest.id,
+      },
+      data: {
+        status: REQUEST_STATUS.APPROVED,
+      },
+      include: {
+        employees: true,
       },
     });
 
-    if (holiday) {
-      await prisma.dayOff.update({
+    if (approvalInfo.shouldDecrementRemainingDayOffs) {
+      const employeeUpdate = await tx.employees.updateMany({
         where: {
-          id: parseInt(id),
-        },
-        data: {
-          status: "CANCELED",
-        },
-      });
-
-      return res.status(400).json({
-        message: "วันนี้เป็นวันหยุดของสาขานี้ ระบบยกเลิกคำขอลาแล้ว",
-      });
-    }
-
-    const remainingDayOffs = Number(
-      dayOffRequest.employees.remainingDayOffs || 0
-    );
-
-    if (remainingDayOffs <= 0) {
-      return res.status(400).json({
-        message: "อนุมัติไม่ได้ วันลาคงเหลือไม่พอ",
-      });
-    }
-
-    const updatedRequest = await prisma.$transaction(async (tx) => {
-      const approved = await tx.dayOff.update({
-        where: {
-          id: parseInt(id),
-        },
-        data: {
-          status: "APPROVED",
-        },
-        include: {
-          employees: true,
-        },
-      });
-
-      await tx.employees.update({
-        where: {
-          id: dayOffRequest.employeesId,
+          id: employee.id,
+          remainingDayOffs: {
+            gt: 0,
+          },
         },
         data: {
           remainingDayOffs: {
@@ -346,170 +717,409 @@ exports.approveDayOffRequest = async (req, res, next) => {
         },
       });
 
-      return approved;
-    });
+      if (employeeUpdate.count !== 1) {
+        throw makeHttpError(400, "อนุมัติไม่ได้ วันลาคงเหลือไม่พอ");
+      }
+    }
 
-    res.json({
-      message: "Day-off request approved successfully",
-      data: updatedRequest,
-    });
-  } catch (error) {
-    console.error("Error in approveDayOffRequest:", error);
-    next(error);
-  }
+    await createAudit(
+      tx,
+      req,
+      buildDayOffAuditData({
+        status: REQUEST_STATUS.APPROVED,
+        dayOffRequest,
+        employee,
+        oldRemainingDayOffs: approvalInfo.remainingDayOffs,
+        newRemainingDayOffs: approvalInfo.newRemainingDayOffs,
+        dayOffQuotaInfo: {
+          isCurrentMonth: approvalInfo.isCurrentMonth,
+          approveBy: approvalInfo.approveBy,
+          shouldDecrementRemainingDayOffs:
+            approvalInfo.shouldDecrementRemainingDayOffs,
+          maxDayOffPerMonth: approvalInfo.maxDayOffPerMonth,
+          approvedDayOffInRequestMonth:
+            approvalInfo.approvedDayOffInRequestMonth,
+          monthQuotaRemainingBeforeApproval:
+            approvalInfo.monthQuotaRemainingBeforeApproval,
+          monthQuotaRemainingAfterApproval:
+            approvalInfo.monthQuotaRemainingAfterApproval,
+        },
+      })
+    );
+
+    return approved;
+  });
 };
 
-exports.rejectDayOffRequest = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    if (req.user.role !== "ADMIN" && req.user.role !== "OWNER") {
-      return res.status(403).json({
-        message: "Not authorized",
-      });
-    }
-
-    const dayOffRequest = await prisma.dayOff.findUnique({
+const rejectDayOff = async ({ req, dayOffRequest, employee }) => {
+  return prisma.$transaction(async (tx) => {
+    const rejected = await tx.dayOff.update({
       where: {
-        id: parseInt(id),
-      },
-    });
-
-    if (!dayOffRequest) {
-      return res.status(404).json({
-        message: "Day-off request not found",
-      });
-    }
-
-    if (dayOffRequest.status !== "PENDING") {
-      return res.status(400).json({
-        message: "Only pending requests can be rejected",
-      });
-    }
-
-    const updatedRequest = await prisma.dayOff.update({
-      where: {
-        id: parseInt(id),
+        id: dayOffRequest.id,
       },
       data: {
-        status: "REJECTED",
+        status: REQUEST_STATUS.REJECTED,
+      },
+      include: {
+        employees: true,
       },
     });
 
-    res.json({
-      message: "Day-off request rejected",
-      data: updatedRequest,
-    });
-  } catch (error) {
-    console.error("Error in rejectDayOffRequest:", error);
-    next(error);
-  }
+    await createAudit(
+      tx,
+      req,
+      buildDayOffAuditData({
+        status: REQUEST_STATUS.REJECTED,
+        dayOffRequest,
+        employee,
+      })
+    );
+
+    return rejected;
+  });
 };
 
-exports.getEmployeesDashboard = async (req, res, next) => {
-  try {
-    const { year, month } = req.query;
+const handleSalaryRequestReview = async ({ req, res, status }) => {
+  assertAdminOrOwner(req.user);
 
-    const dashboardYear = parseInt(year) || new Date().getFullYear();
-    const dashboardMonth = parseInt(month) || new Date().getMonth() + 1;
+  const id = assertRequestId(req.params.id);
+  const actionText = status === REQUEST_STATUS.APPROVED ? "approved" : "rejected";
+
+  const salaryRequest = await prisma.advanceSalary.findUnique({
+    where: { id },
+    include: requestInclude,
+  });
+
+  assertReviewableRequest(
+    salaryRequest,
+    "Advance salary request not found",
+    actionText
+  );
+
+  const employee = salaryRequest.employees;
+  assertReviewableEmployee(employee);
+
+  const approvalInfo =
+    status === REQUEST_STATUS.APPROVED
+      ? await getAdvanceSalaryApprovalInfo(salaryRequest, employee)
+      : null;
+
+  const updatedRequest = await updateAdvanceSalaryStatus({
+    req,
+    salaryRequest,
+    employee,
+    status,
+  });
+
+  await sendAdvanceReviewNotification({
+    status,
+    salaryRequest,
+    employeeId: employee.id,
+    createdById: req.user.id,
+  });
+
+  const response = {
+    message:
+      status === REQUEST_STATUS.APPROVED
+        ? "Advance salary request approved successfully"
+        : "Advance salary request rejected",
+    data: updatedRequest,
+  };
+
+  if (approvalInfo) {
+    response.remainingAdvanceSalary =
+      approvalInfo.remainingAdvanceSalary - approvalInfo.requestAmount;
+  }
+
+  return res.json(response);
+};
+
+const handleDayOffRequestReview = async ({ req, res, status }) => {
+  assertAdminOrOwner(req.user);
+
+  const id = assertRequestId(req.params.id);
+  const isApprove = status === REQUEST_STATUS.APPROVED;
+  const actionText = isApprove ? "approved" : "rejected";
+
+  const dayOffRequest = await prisma.dayOff.findUnique({
+    where: { id },
+    include: requestInclude,
+  });
+
+  assertReviewableRequest(dayOffRequest, "Day-off request not found", actionText);
+
+  const employee = dayOffRequest.employees;
+  assertReviewableEmployee(employee, { requirePosition: isApprove });
+
+  // สำคัญ:
+  // กรณี 1: ถ้าขอเดือนปัจจุบัน ให้ใช้ remainingDayOffs และ decrement เมื่อ approve
+  // กรณี 2: ถ้าขอเดือนอื่น ให้เช็กเฉพาะ APPROVED ของเดือนนั้นก่อน
+  //   - ถ้า approvedDayOffInRequestMonth < maxDayOffPerMonth ให้ approve ได้ และไม่ decrement remainingDayOffs
+  //   - ถ้า approvedDayOffInRequestMonth >= maxDayOffPerMonth ให้ fallback ไปใช้ remainingDayOffs และ decrement
+  //   - ถ้า remainingDayOffs ไม่พอด้วย ให้ approve ไม่ได้
+  if (isApprove) {
+    const holiday = await isDayOffOnStoreHoliday({
+      date: dayOffRequest.date,
+      branchId: employee.branchId,
+    });
+
+    if (holiday) {
+      const canceledRequest = await cancelDayOffBecauseHoliday({
+        req,
+        dayOffRequest,
+        employee,
+      });
+
+      return res.status(400).json({
+        message: "วันนี้เป็นวันหยุดของสาขานี้ ระบบยกเลิกคำขอลาแล้ว",
+        data: canceledRequest,
+      });
+    }
+  }
+
+  const updatedRequest = isApprove
+    ? await approveDayOff({ req, dayOffRequest, employee })
+    : await rejectDayOff({ req, dayOffRequest, employee });
+
+  await sendDayOffReviewNotification({
+    status,
+    dayOffRequest,
+    employeeId: employee.id,
+    createdById: req.user.id,
+  });
+
+  return res.json({
+    message: isApprove
+      ? "Day-off request approved successfully"
+      : "Day-off request rejected",
+    data: updatedRequest,
+  });
+};
+
+exports.getPendingRequests = controller("getPendingRequests", async (req, res) => {
+  assertAdminOrOwner(req.user);
+
+  const includeHistory = req.query.includeHistory === "true";
+  const days = Math.min(
+    Math.max(parseInt(req.query.days, 10) || DEFAULT_HISTORY_DAYS, 1),
+    MAX_HISTORY_DAYS
+  );
+
+  const requestWhere = getRequestWhere({ includeHistory, days });
+
+  const [salaryRequests, dayOffRequests] = await Promise.all([
+    prisma.advanceSalary.findMany({
+      where: requestWhere,
+      include: requestInclude,
+      orderBy: {
+        updatedAt: "desc",
+      },
+    }),
+    prisma.dayOff.findMany({
+      where: requestWhere,
+      include: requestInclude,
+      orderBy: {
+        updatedAt: "desc",
+      },
+    }),
+  ]);
+
+  const data = [
+    ...salaryRequests.map(formatSalaryRequest),
+    ...dayOffRequests.map(formatDayOffRequest),
+  ].sort((a, b) => getRequestSortTime(b) - getRequestSortTime(a));
+
+  return res.json({
+    message: "Get requests success",
+    data,
+  });
+});
+
+exports.approveSalaryRequest = controller(
+  "approveSalaryRequest",
+  async (req, res) => {
+    return handleSalaryRequestReview({
+      req,
+      res,
+      status: REQUEST_STATUS.APPROVED,
+    });
+  }
+);
+
+exports.rejectSalaryRequest = controller(
+  "rejectSalaryRequest",
+  async (req, res) => {
+    return handleSalaryRequestReview({
+      req,
+      res,
+      status: REQUEST_STATUS.REJECTED,
+    });
+  }
+);
+
+exports.approveDayOffRequest = controller(
+  "approveDayOffRequest",
+  async (req, res) => {
+    return handleDayOffRequestReview({
+      req,
+      res,
+      status: REQUEST_STATUS.APPROVED,
+    });
+  }
+);
+
+exports.rejectDayOffRequest = controller(
+  "rejectDayOffRequest",
+  async (req, res) => {
+    return handleDayOffRequestReview({
+      req,
+      res,
+      status: REQUEST_STATUS.REJECTED,
+    });
+  }
+);
+
+exports.getEmployeesDashboard = controller(
+  "getEmployeesDashboard",
+  async (req, res) => {
+    assertAdminOrOwner(req.user);
+
+    const { year, month, branchId } = req.query;
+    const bangkokNow = getBangkokYearMonth(new Date());
+
+    const dashboardYear = parseInt(year, 10) || bangkokNow.year;
+    const dashboardMonth = parseInt(month, 10) || bangkokNow.month;
 
     const { start: startDate, end: endDate } = getBangkokMonthRange(
       dashboardYear,
       dashboardMonth
     );
 
-    const holidays = await prisma.storeHoliday.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
+    const employeeWhere = {
+      ...getActiveEmployeeWhere(),
+      branch: {
+        is: getActiveBranchWhere(),
       },
-    });
-
-    const employees = await prisma.employees.findMany({
-      include: {
-        branch: true,
-        position: true,
-        timetracking: {
-          where: {
-            date: {
-              gte: startDate,
-              lte: endDate,
-            },
-          },
-          include: {
-            shift: true,
-          },
-          orderBy: {
-            checkIn: "desc",
-          },
-        },
-        overtimeTrackings: {
-          where: {
-            date: {
-              gte: startDate,
-              lte: endDate,
-            },
-          },
-          include: {
-            branch: true,
-          },
-          orderBy: {
-            checkIn: "desc",
-          },
-        },
-        dayOff: {
-          where: {
-            date: {
-              gte: startDate,
-              lte: endDate,
-            },
-          },
-        },
-        advanceSalary: {
-          where: {
-            requestDate: {
-              gte: startDate,
-              lte: endDate,
-            },
-          },
-        },
-        salaryRecord: {
-          where: {
-            month: {
-              gte: startDate,
-              lte: endDate,
-            },
-          },
-        },
-      },
-      orderBy: {
-        firstname: "asc",
-      },
-    });
-
-    const toBangkokDateKey = (date) => {
-      return new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Bangkok",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(new Date(date));
     };
 
+    const holidayWhere = {
+      ...getActiveStoreHolidayWhere(),
+      date: {
+        gte: startDate,
+        lte: endDate,
+      },
+      branch: {
+        is: getActiveBranchWhere(),
+      },
+    };
+
+    if (branchId && branchId !== "all") {
+      const parsedBranchId = Number(branchId);
+
+      if (!Number.isInteger(parsedBranchId) || parsedBranchId <= 0) {
+        throw makeHttpError(400, "Invalid branch id");
+      }
+
+      employeeWhere.branchId = parsedBranchId;
+      holidayWhere.branchId = parsedBranchId;
+    }
+
+    const [holidays, employees] = await Promise.all([
+      prisma.storeHoliday.findMany({
+        where: holidayWhere,
+      }),
+      prisma.employees.findMany({
+        where: employeeWhere,
+        include: {
+          branch: true,
+          position: {
+            include: {
+              branch: true,
+            },
+          },
+          timetracking: {
+            where: {
+              date: {
+                gte: startDate,
+                lte: endDate,
+              },
+            },
+            include: {
+              shift: true,
+            },
+            orderBy: {
+              checkIn: "desc",
+            },
+          },
+          overtimeTrackings: {
+            where: {
+              date: {
+                gte: startDate,
+                lte: endDate,
+              },
+            },
+            include: {
+              branch: true,
+            },
+            orderBy: {
+              checkIn: "desc",
+            },
+          },
+          dayOff: {
+            where: {
+              date: {
+                gte: startDate,
+                lte: endDate,
+              },
+            },
+          },
+          advanceSalary: {
+            where: {
+              requestDate: {
+                gte: startDate,
+                lte: endDate,
+              },
+            },
+          },
+          salaryRecord: {
+            where: {
+              month: {
+                gte: startDate,
+                lte: endDate,
+              },
+            },
+          },
+        },
+        orderBy: {
+          firstname: "asc",
+        },
+      }),
+    ]);
+
+    const holidaysByBranchId = new Map();
+    const holidayKeysByBranchId = new Map();
+
+    holidays.forEach((holiday) => {
+      const branchKey = String(holiday.branchId);
+      const dateKey = toBangkokDateKey(holiday.date);
+
+      if (!holidaysByBranchId.has(branchKey)) {
+        holidaysByBranchId.set(branchKey, []);
+        holidayKeysByBranchId.set(branchKey, new Set());
+      }
+
+      holidaysByBranchId.get(branchKey).push(holiday);
+      holidayKeysByBranchId.get(branchKey).add(dateKey);
+    });
+
     const todayKey = toBangkokDateKey(new Date());
-
-    const selectedMonthKey = `${dashboardYear}-${String(dashboardMonth).padStart(
-      2,
-      "0"
-    )}`;
-
+    const selectedMonthKey = `${dashboardYear}-${String(
+      dashboardMonth
+    ).padStart(2, "0")}`;
     const currentMonthKey = todayKey.slice(0, 7);
 
     const getLastDayToCheck = () => {
       if (selectedMonthKey > currentMonthKey) return 0;
-
       if (selectedMonthKey === currentMonthKey) {
         return Number(todayKey.slice(8, 10));
       }
@@ -520,16 +1130,20 @@ exports.getEmployeesDashboard = async (req, res, next) => {
     const lastDayToCheck = getLastDayToCheck();
 
     const transformedEmployees = employees.map((employee) => {
-      const employeeHolidays = holidays.filter(
-        (holiday) => Number(holiday.branchId) === Number(employee.branchId)
-      );
+      const validPosition =
+        employee.position &&
+        employee.position.isActive &&
+        !employee.position.isDeleted &&
+        Number(employee.position.branchId) === Number(employee.branchId)
+          ? employee.position
+          : null;
 
-      const holidayDateKeys = new Set(
-        employeeHolidays.map((holiday) => toBangkokDateKey(holiday.date))
-      );
+      const branchKey = String(employee.branchId);
+      const employeeHolidays = holidaysByBranchId.get(branchKey) || [];
+      const holidayDateKeys = holidayKeysByBranchId.get(branchKey) || new Set();
 
       const approvedAdvanceSalary = (employee.advanceSalary || []).filter(
-        (advance) => advance.status === "APPROVED"
+        (advance) => advance.status === REQUEST_STATUS.APPROVED
       );
 
       const advanceTaken = approvedAdvanceSalary.reduce(
@@ -537,18 +1151,9 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         0
       );
 
-      const salaryRecordForMonth = employee.salaryRecord.find((record) => {
-        const recordDate = new Date(record.month);
-
-        return (
-          recordDate.getFullYear() === dashboardYear &&
-          recordDate.getMonth() === dashboardMonth - 1
-        );
-      });
-
+      const salaryRecordForMonth = (employee.salaryRecord || [])[0] || null;
       const attendanceLogs = [];
       const employeeCreatedKey = toBangkokDateKey(employee.createdAt);
-
       const checkInDateMap = new Map();
 
       (employee.timetracking || []).forEach((record) => {
@@ -559,12 +1164,30 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         }
 
         attendanceLogs.push({
+          id: record.id,
           date: key,
           status: "PRESENT",
+          timeStatus: record.status || "ACTIVE",
           checkIn: record.checkIn,
           checkOut: record.checkOut,
           shiftId: record.shiftId || null,
-          shiftName: record.shift?.name || null,
+          shiftName: record.shiftNameSnapshot || record.shift?.name || null,
+          positionIdSnapshot: record.positionIdSnapshot || null,
+          positionName: record.positionNameSnapshot || validPosition?.name || null,
+          scheduledCheckInTime:
+            record.scheduledCheckInTime || record.shift?.checkInTime || null,
+          scheduledCheckOutTime:
+            record.scheduledCheckOutTime || record.shift?.checkOutTime || null,
+          checkInGraceBeforeMinutes:
+            record.checkInGraceBeforeMinutesSnapshot ??
+            record.shift?.checkInGraceBeforeMinutes ??
+            null,
+          checkOutGraceAfterMinutes:
+            record.checkOutGraceAfterMinutesSnapshot ??
+            record.shift?.checkOutGraceAfterMinutes ??
+            null,
+          branchIdSnapshot: record.branchIdSnapshot || employee.branchId || null,
+          branchName: record.branchNameSnapshot || employee.branch?.name || null,
           lateMinutes: record.lateMinutes || 0,
           earlyLeaveMinutes: record.earlyLeaveMinutes || 0,
           checkInNote: record.checkInNote || null,
@@ -582,7 +1205,10 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         otMinutes: ot.otMinutes || 0,
         status: ot.status,
         branchId: ot.branchId,
-        branch: ot.branch || null,
+        branch:
+          ot.branch && ot.branch.isActive && !ot.branch.isDeleted
+            ? ot.branch
+            : null,
       }));
 
       const totalOtMinutes = overtimeLogs
@@ -590,21 +1216,21 @@ exports.getEmployeesDashboard = async (req, res, next) => {
           (record) =>
             record.checkIn &&
             record.checkOut &&
-            record.status !== 'CANCELLED' &&
-            record.status !== 'EXPIRED'
+            record.status !== "CANCELLED" &&
+            record.status !== "EXPIRED"
         )
-        .reduce((sum, record) => sum + Number(record.otMinutes || 0), 0)
+        .reduce((sum, record) => sum + Number(record.otMinutes || 0), 0);
 
       const activeOvertime =
-        overtimeLogs.find((ot) => ot.status === "ACTIVE") || null;
+        overtimeLogs.find((ot) => ot.status === "ACTIVE" && !ot.checkOut) ||
+        null;
 
       const approvedDayOffMap = new Map();
 
       (employee.dayOff || [])
-        .filter((dayOff) => dayOff.status === "APPROVED")
+        .filter((dayOff) => dayOff.status === REQUEST_STATUS.APPROVED)
         .forEach((dayOff) => {
           const key = toBangkokDateKey(dayOff.date);
-
           approvedDayOffMap.set(key, dayOff);
 
           attendanceLogs.push({
@@ -618,7 +1244,10 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         const key = toBangkokDateKey(holiday.date);
         const dayNumber = Number(key.slice(8, 10));
 
-        if (key.slice(0, 7) === selectedMonthKey && dayNumber <= lastDayToCheck) {
+        if (
+          key.slice(0, 7) === selectedMonthKey &&
+          dayNumber <= lastDayToCheck
+        ) {
           attendanceLogs.push({
             date: key,
             status: "HOLIDAY",
@@ -627,7 +1256,7 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         }
       });
 
-      for (let day = 1; day <= lastDayToCheck; day++) {
+      for (let day = 1; day <= lastDayToCheck; day += 1) {
         const dateKey = `${dashboardYear}-${String(dashboardMonth).padStart(
           2,
           "0"
@@ -661,15 +1290,17 @@ exports.getEmployeesDashboard = async (req, res, next) => {
         lastname: employee.lastname,
         profileImage: employee.profileImage,
         role: employee.role,
+        isActive: employee.isActive,
+        isDeleted: employee.isDeleted,
 
         branchId: employee.branchId,
         branch: employee.branch,
 
-        positionId: employee.positionId,
-        position: employee.position,
+        positionId: validPosition?.id || null,
+        position: validPosition,
 
         baseSalary: employee.baseSalary || 0,
-        remainingDayOffs: employee.position
+        remainingDayOffs: validPosition
           ? Number(employee.remainingDayOffs || 0)
           : 0,
 
@@ -685,7 +1316,6 @@ exports.getEmployeesDashboard = async (req, res, next) => {
 
         attendanceLogs,
         absentDays,
-
         advanceTaken,
 
         finalSalary: salaryRecordForMonth
@@ -694,209 +1324,177 @@ exports.getEmployeesDashboard = async (req, res, next) => {
       };
     });
 
-    res.status(200).json(transformedEmployees);
-  } catch (error) {
-    console.error("Error fetching employee dashboard data:", error);
-
-    res.status(500).json({
-      message: "Failed to fetch employee dashboard data",
-      error: error.message,
-    });
+    return res.status(200).json(transformedEmployees);
   }
-};
+);
 
-exports.getTimetracking = async (req, res, next) => {
-  try {
-    const { month, year, branchId, page = 1, limit = 50 } = req.query
+exports.getApproveRequestHistory = controller(
+  "getApproveRequestHistory",
+  async (req, res) => {
+    assertAdminOrOwner(req.user);
 
-    if (!month || !year) {
-      return res.status(400).json({
-        success: false,
-        message: 'Both month and year are required',
-      })
-    }
+    const bangkokNow = getBangkokYearMonth(new Date());
+    const month = Number(req.query.month) || bangkokNow.month;
+    const year = Number(req.query.year) || bangkokNow.year;
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(
+      Math.max(Number(req.query.limit) || DEFAULT_PAGE_LIMIT, 1),
+      MAX_PAGE_LIMIT
+    );
+    const skip = (page - 1) * limit;
 
-    const monthNum = parseInt(month, 10)
-    const yearNum = parseInt(year, 10)
-    const pageNum = Math.max(parseInt(page, 10) || 1, 1)
-    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100)
+    const { start: monthStart, end: monthEnd } = getBangkokMonthRange(
+      year,
+      month
+    );
 
-    if (
-      isNaN(monthNum) ||
-      monthNum < 1 ||
-      monthNum > 12 ||
-      isNaN(yearNum)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid month or year',
-      })
-    }
-
-    const { start: startDate, end: endDate } = getBangkokMonthRange(
-      yearNum,
-      monthNum
-    )
-
-    const user = req.user
-
-    const timeWhere = {
-      date: {
-        gte: startDate,
-        lte: endDate,
+    const where = {
+      action: {
+        in: [REQUEST_ACTION.APPROVE, REQUEST_ACTION.REJECT],
       },
-      checkIn: {
-        not: null,
+      entity: {
+        in: [REQUEST_ENTITY.DAY_OFF, REQUEST_ENTITY.ADVANCE_SALARY],
       },
-    }
-
-    const overtimeWhere = {
-      date: {
-        gte: startDate,
-        lte: endDate,
+      createdAt: {
+        gte: monthStart,
+        lte: monthEnd,
       },
-    }
+    };
 
-    if (branchId && branchId !== 'all') {
-      timeWhere.employees = {
-        is: {
-          branchId: parseInt(branchId, 10),
-        },
+    if (req.query.branchId && req.query.branchId !== "all") {
+      const parsedBranchId = Number(req.query.branchId);
+
+      if (!Number.isInteger(parsedBranchId) || parsedBranchId <= 0) {
+        throw makeHttpError(400, "Invalid branch id");
       }
 
-      overtimeWhere.branchId = parseInt(branchId, 10)
+      where.branchId = parsedBranchId;
     }
 
-    if (user.role !== 'ADMIN' && user.role !== 'OWNER') {
-      timeWhere.employeesId = user.id
-      overtimeWhere.employeesId = user.id
-    }
-
-    const [timeRecords, overtimeRecords] = await prisma.$transaction([
-      prisma.timeTracking.findMany({
-        where: timeWhere,
-        orderBy: {
-          checkIn: 'desc',
-        },
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
         include: {
-          shift: true,
-          employees: {
+          actor: {
             select: {
               id: true,
               firstname: true,
               lastname: true,
               email: true,
+              role: true,
               profileImage: true,
-              branchId: true,
-              branch: true,
             },
           },
-        },
-      }),
-
-      prisma.overtimeTracking.findMany({
-        where: overtimeWhere,
-        orderBy: {
-          checkIn: 'desc',
-        },
-        include: {
-          branch: true,
-          employees: {
+          targetEmployee: {
             select: {
               id: true,
               firstname: true,
               lastname: true,
               email: true,
+              role: true,
               profileImage: true,
               branchId: true,
-              branch: true,
+              positionId: true,
+              branch: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                },
+              },
+              position: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          branch: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
             },
           },
         },
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: limit,
       }),
-    ])
+      prisma.auditLog.count({ where }),
+    ]);
 
-    const formattedTimeRecords = timeRecords.map((record) => ({
-      id: record.id,
-      type: 'WORK',
-      date: record.date,
-      checkIn: record.checkIn,
-      checkOut: record.checkOut,
-      minutes: null,
-      lateMinutes: record.lateMinutes || 0,
-      earlyLeaveMinutes: record.earlyLeaveMinutes || 0,
-      checkInNote: record.checkInNote || null,
-      checkOutNote: record.checkOutNote || null,
-      shiftId: record.shiftId || null,
-      shift: record.shift || null,
-      status: record.checkOut ? 'COMPLETED' : 'ACTIVE',
-      employeesId: record.employeesId,
-      employees: record.employees,
-      branchId: record.employees?.branchId || null,
-      branch: record.employees?.branch || null,
-    }))
+    const getStatusFromAudit = (log, newValue = {}) => {
+      if (newValue.status) return newValue.status;
+      if (log.action === REQUEST_ACTION.APPROVE) return REQUEST_STATUS.APPROVED;
+      if (log.action === REQUEST_ACTION.REJECT) return REQUEST_STATUS.REJECTED;
 
-    const formattedOvertimeRecords = overtimeRecords.map((record) => ({
-      id: record.id,
-      type: 'OT',
-      date: record.date,
-      checkIn: record.checkIn,
-      checkOut: record.checkOut,
-      minutes: record.otMinutes || 0,
-      otMinutes: record.otMinutes || 0,
-      noteIn: record.noteIn || null,
-      noteOut: record.noteOut || null,
-      status: record.status,
-      employeesId: record.employeesId,
-      employees: record.employees,
-      branchId: record.branchId,
-      branch: record.branch || record.employees?.branch || null,
-    }))
+      return REQUEST_STATUS.PENDING;
+    };
 
-    const allRecords = [
-      ...formattedTimeRecords,
-      ...formattedOvertimeRecords,
-    ].sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn))
+    const data = logs.map((log) => {
+      const oldValue = log.oldValue || {};
+      const newValue = log.newValue || {};
+      const isAdvance = log.entity === REQUEST_ENTITY.ADVANCE_SALARY;
+      const isDayOff = log.entity === REQUEST_ENTITY.DAY_OFF;
 
-    const total = allRecords.length
-    const startIndex = (pageNum - 1) * limitNum
-    const paginatedRecords = allRecords.slice(startIndex, startIndex + limitNum)
+      return {
+        id: log.id,
+        auditLogId: log.id,
 
-    const totalWorkRecords = formattedTimeRecords.length
-    const totalOtRecords = formattedOvertimeRecords.length
+        action: log.action,
+        status: getStatusFromAudit(log, newValue),
 
-    const totalOtMinutes = formattedOvertimeRecords
-      .filter(
-        (record) =>
-          record.checkIn &&
-          record.checkOut &&
-          record.status !== 'CANCELLED' &&
-          record.status !== 'EXPIRED'
-      )
-      .reduce((sum, record) => sum + Number(record.otMinutes || 0), 0)
-    return res.status(200).json({
-      success: true,
-      data: paginatedRecords,
-      summary: {
-        totalWorkRecords,
-        totalOtRecords,
-        totalOtMinutes,
-      },
+        entity: log.entity,
+        entityId: log.entityId,
+        requestId: log.entityId,
+
+        type: isAdvance ? REQUEST_TYPE.ADVANCE : REQUEST_TYPE.DAY_OFF,
+        requestType: isAdvance ? REQUEST_TYPE.ADVANCE : REQUEST_TYPE.DAY_OFF,
+
+        amount:
+          isAdvance && newValue.amount !== undefined && newValue.amount !== null
+            ? Number(newValue.amount)
+            : null,
+
+        requestDate: isAdvance ? newValue.requestDate || null : null,
+        date: isDayOff ? newValue.date || null : null,
+        reason: isDayOff ? newValue.reason || "" : "",
+        cancelReason: newValue.cancelReason || null,
+
+        oldValue,
+        newValue,
+        note: log.note || "",
+
+        approvedAt: log.createdAt,
+        reviewedAt: log.createdAt,
+        createdAt: log.createdAt,
+        updatedAt: log.createdAt,
+
+        actor: formatEmployee(log.actor),
+        reviewer: formatEmployee(log.actor),
+        approvedBy: formatEmployee(log.actor),
+
+        employee: formatEmployee(log.targetEmployee),
+        employees: formatEmployee(log.targetEmployee),
+        targetEmployee: formatEmployee(log.targetEmployee),
+
+        branch: log.branch || log.targetEmployee?.branch || null,
+      };
+    });
+
+    return res.json({
+      message: "Get approve request history success",
+      data,
       pagination: {
-        page: pageNum,
-        limit: limitNum,
+        page,
+        limit,
         total,
-        totalPages: Math.ceil(total / limitNum),
+        totalPages: Math.max(Math.ceil(total / limit), 1),
       },
-      message: 'All time and overtime records fetched successfully',
-    })
-  } catch (error) {
-    console.error('Error fetching time records summary:', error)
-
-    return res.status(500).json({
-      success: false,
-      message: 'Server error while fetching time records summary',
-      error: error.message,
-    })
+    });
   }
-}
+);

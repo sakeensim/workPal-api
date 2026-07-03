@@ -16,13 +16,30 @@ model Branch {
   lng       Float
   radius    Int      @default(100)
   isActive  Boolean  @default(true)
+
+  isDeleted     Boolean   @default(false)
+  deletedAt     DateTime?
+  deletedReason String?
+
+  deletedById Int?
+  deletedBy   Employees? @relation("BranchDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   employees         Employees[]
+  positions         Position[]
   holidays          StoreHoliday[]
   calendarNotes     CalendarNote[]
   overtimeTrackings OvertimeTracking[]
+
+  notifications Notification[] @relation("NotificationBranch")
+  auditLogs     AuditLog[]     @relation("AuditLogBranch")
+
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([deletedAt])
+  @@index([deletedById])
 }
 
 model Employees {
@@ -38,6 +55,19 @@ model Employees {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   role             Role     @default(USER)
+
+  isActive      Boolean   @default(true)
+  isDeleted     Boolean   @default(false)
+  deletedAt     DateTime?
+  deletedReason String?
+
+  deletedById      Int?
+  deletedBy        Employees?  @relation("EmployeeDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedEmployees Employees[] @relation("EmployeeDeletedBy")
+
+  deletedBranches  Branch[]   @relation("BranchDeletedBy")
+  deletedPositions Position[] @relation("PositionDeletedBy")
+  deletedShifts    Shift[]    @relation("ShiftDeletedBy")
 
   remainingDayOffs     Int @default(0)
   lastDayOffResetMonth Int?
@@ -55,6 +85,22 @@ model Employees {
   advanceSalary     AdvanceSalary[]
   salaryRecord      SalaryRecord[]
   employeeShifts    EmployeeShift[]
+
+  createdNotifications  Notification[]          @relation("NotificationCreatedBy")
+  notificationRecipients NotificationRecipient[]
+
+  auditLogsAsActor  AuditLog[] @relation("AuditActor")
+  auditLogsAsTarget AuditLog[] @relation("AuditTargetEmployee")
+
+  monthlyHistorySnapshots MonthlyHistorySnapshot[]
+
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([deletedAt])
+  @@index([deletedById])
+  @@index([branchId])
+  @@index([positionId])
+  @@index([role])
 }
 
 enum Role {
@@ -80,7 +126,36 @@ model TimeTracking {
   shiftId Int?
   shift   Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
+  shiftNameSnapshot    String?
+  positionIdSnapshot   Int?
+  positionNameSnapshot String?
+
+  scheduledCheckInTime  String?
+  scheduledCheckOutTime String?
+
+  checkInGraceBeforeMinutesSnapshot Int?
+  checkOutGraceAfterMinutesSnapshot Int?
+
+  branchIdSnapshot   Int?
+  branchNameSnapshot String?
+
+  status TimeTrackingStatus @default(ACTIVE)
+
   @@unique([employeesId, date, shiftId])
+  @@index([employeesId])
+  @@index([date])
+  @@index([shiftId])
+  @@index([status])
+  @@index([branchIdSnapshot])
+  @@index([positionIdSnapshot])
+}
+
+enum TimeTrackingStatus {
+  ACTIVE
+  COMPLETED
+  EXPIRED
+  CANCELLED
+  MANUAL
 }
 
 model OvertimeTracking {
@@ -105,7 +180,7 @@ model OvertimeTracking {
 
   @@index([employeesId])
   @@index([branchId])
-  @@index([date])   
+  @@index([date])
   @@index([status])
 }
 
@@ -126,6 +201,10 @@ model DayOff {
 
   employeesId Int?
   employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: SetNull)
+
+  @@index([employeesId])
+  @@index([date])
+  @@index([status])
 }
 
 enum Status {
@@ -144,7 +223,11 @@ model AdvanceSalary {
   status      Status   @default(PENDING)
 
   employeesId Int?
-  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: Cascade)
+  employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: SetNull)
+
+  @@index([employeesId])
+  @@index([requestDate])
+  @@index([status])
 }
 
 model SalaryRecord {
@@ -156,11 +239,14 @@ model SalaryRecord {
 
   employeesId Int?
   employees   Employees? @relation(fields: [employeesId], references: [id], onDelete: SetNull)
+
+  @@index([employeesId])
+  @@index([month])
 }
 
 model Position {
   id                Int      @id @default(autoincrement())
-  name              String   @unique
+  name              String
   description       String?
   checkInTime       String
   checkOutTime      String
@@ -169,11 +255,29 @@ model Position {
   allowOT      Boolean @default(false)
   otCapMinutes Int?
 
+  isActive      Boolean   @default(true)
+  isDeleted     Boolean   @default(false)
+  deletedAt     DateTime?
+  deletedReason String?
+
+  deletedById Int?
+  deletedBy   Employees? @relation("PositionDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  branchId Int?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   employees Employees[]
   shifts    Shift[]
+
+  @@unique([branchId, name])
+  @@index([branchId])
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([deletedAt])
+  @@index([deletedById])
 }
 
 model StoreHoliday {
@@ -184,9 +288,18 @@ model StoreHoliday {
   branchId Int
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  isDeleted     Boolean   @default(false)
+  deletedAt     DateTime?
+  deletedById   Int?
+  deletedReason String?
 
-  @@unique([date, branchId])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([branchId])
+  @@index([date])
+  @@index([isDeleted])
+  @@index([date, branchId, isDeleted])
 }
 
 model Shift {
@@ -196,6 +309,16 @@ model Shift {
   checkOutTime String
   isDefault    Boolean  @default(false)
   isActive     Boolean  @default(true)
+
+  isDeleted     Boolean   @default(false)
+  deletedAt     DateTime?
+  deletedReason String?
+
+  deletedById Int?
+  deletedBy   Employees? @relation("ShiftDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  checkInGraceBeforeMinutes Int @default(30)
+  checkOutGraceAfterMinutes Int @default(180)
 
   positionId Int
   position   Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
@@ -207,6 +330,11 @@ model Shift {
   updatedAt DateTime @updatedAt
 
   @@unique([positionId, name])
+  @@index([positionId])
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([deletedAt])
+  @@index([deletedById])
 }
 
 model EmployeeShift {
@@ -223,6 +351,9 @@ model EmployeeShift {
   updatedAt DateTime @updatedAt
 
   @@unique([employeesId, date])
+  @@index([employeesId])
+  @@index([shiftId])
+  @@index([date])
 }
 
 model CalendarNote {
@@ -234,9 +365,168 @@ model CalendarNote {
   branchId Int
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
+  isDeleted     Boolean   @default(false)
+  deletedAt     DateTime?
+  deletedById   Int?
+  deletedReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([date])
   @@index([branchId])
+  @@index([isDeleted])
+}
+enum NotificationType {
+  REQUEST_CREATED
+  REQUEST_APPROVED
+  REQUEST_REJECTED
+  HOLIDAY_CREATED
+  CALENDAR_NOTE_CREATED
+  CALENDAR_NOTE_DELETED
+  HOLIDAY_DELETED
+  SYSTEM
+}
+
+enum NotificationTargetType {
+  USER
+  ADMIN
+  OWNER
+  ALL
+  BRANCH
+}
+
+model Notification {
+  id       Int              @id @default(autoincrement())
+  type     NotificationType
+  title    String
+  message  String?
+  link     String?
+  entity   String?
+  entityId Int?
+
+  targetType NotificationTargetType @default(USER)
+
+  branchId Int?
+  branch   Branch? @relation("NotificationBranch", fields: [branchId], references: [id], onDelete: SetNull)
+
+  createdById Int?
+  createdBy   Employees? @relation("NotificationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  recipients NotificationRecipient[]
+
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@index([branchId])
+  @@index([createdById])
+}
+
+model NotificationRecipient {
+  id Int @id @default(autoincrement())
+
+  notificationId Int
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  employeesId Int
+  employees   Employees @relation(fields: [employeesId], references: [id], onDelete: Cascade)
+
+  isRead Boolean @default(false)
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([notificationId, employeesId])
+  @@index([employeesId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+enum AuditAction {
+  ADD_USER
+  DELETE_USER
+  UPDATE_USER
+  ADD_BRANCH
+  UPDATE_BRANCH
+  DELETE_BRANCH
+  ADD_POSITION
+  UPDATE_POSITION
+  DELETE_POSITION
+  CHANGE_POSITION
+  CHANGE_BRANCH
+  CHANGE_SALARY
+  APPROVE_REQUEST
+  REJECT_REQUEST
+  ADD_CALENDAR_NOTE
+  UPDATE_CALENDAR_NOTE
+  DELETE_CALENDAR_NOTE
+  SET_STORE_HOLIDAY
+  DELETE_STORE_HOLIDAY
+
+  CREATE_SHIFT
+  UPDATE_SHIFT
+  DELETE_SHIFT
+
+  MANUAL_TIME_EDIT
+  SYSTEM
+}
+
+model AuditLog {
+  id Int @id @default(autoincrement())
+
+  action AuditAction
+
+  entity   String
+  entityId Int?
+
+  actorId Int?
+  actor   Employees? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  targetEmployeeId Int?
+  targetEmployee   Employees? @relation("AuditTargetEmployee", fields: [targetEmployeeId], references: [id], onDelete: SetNull)
+
+  branchId Int?
+  branch   Branch? @relation("AuditLogBranch", fields: [branchId], references: [id], onDelete: SetNull)
+
+  oldValue Json?
+  newValue Json?
+  note     String?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([targetEmployeeId])
+  @@index([branchId])
+  @@index([createdAt])
+}
+
+model MonthlyHistorySnapshot {
+  id          Int       @id @default(autoincrement())
+  employeesId Int
+  employee    Employees @relation(fields: [employeesId], references: [id], onDelete: Cascade)
+
+  month DateTime
+
+  remainingDayOffs Int @default(0)
+  salaryLeft       Int @default(0)
+  workingDays      Int @default(0)
+  lateDays         Int @default(0)
+  absentDays       Int @default(0)
+  totalOTMinutes   Int @default(0)
+  dayOffUsed       Int @default(0)
+  advanceTaken     Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeesId, month])
+  @@index([employeesId])
+  @@index([month])
 }
