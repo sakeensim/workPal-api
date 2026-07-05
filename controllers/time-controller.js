@@ -1337,8 +1337,77 @@ exports.deleteDayOff = async (req, res, next) => {
       })
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.dayOff.update({
+    const toAuditDate = (value) => {
+      if (!value) return null
+
+      const parsed = new Date(value)
+
+      if (Number.isNaN(parsed.getTime())) return null
+
+      return parsed.toISOString()
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const oldStatus = dayOffRequest.status
+      const remainingBefore = Number(employee.remainingDayOffs || 0)
+
+      let refundedDayOff = false
+      let refundReason = 'NO_REFUND'
+      let remainingAfter = remainingBefore
+      let approvedDayOffsInMonth = null
+
+      const maxDayOffPerMonth = Number(
+        employee.position?.maxDayOffPerMonth || 0
+      )
+
+      const isCurrentMonth = isSameBangkokMonth(
+        dayOffRequest.date,
+        new Date()
+      )
+
+      // ต้องเช็กจำนวนวันลาก่อน update เป็น CANCELED
+      // เพราะถ้า update ก่อน count จะไม่รวม request ปัจจุบัน
+      if (oldStatus === 'APPROVED') {
+        if (isCurrentMonth) {
+          refundedDayOff = true
+          refundReason = 'CURRENT_MONTH_DIRECT_REFUND'
+        } else {
+          const { start: monthStart, end: monthEnd } = getBangkokMonthRange(
+            dayOffRequest.date
+          )
+
+          approvedDayOffsInMonth = await tx.dayOff.count({
+            where: {
+              employeesId: userId,
+              status: 'APPROVED',
+              date: {
+                gte: monthStart,
+                lte: monthEnd,
+              },
+              employees: {
+                is: {
+                  ...getActiveEmployeeWhere(),
+                  branch: {
+                    is: getActiveBranchWhere(),
+                  },
+                },
+              },
+            },
+          })
+
+          if (approvedDayOffsInMonth > maxDayOffPerMonth) {
+            refundedDayOff = true
+            refundReason = 'FUTURE_MONTH_EXCEEDED_MAX_DAY_OFF'
+          } else {
+            refundedDayOff = false
+            refundReason = 'FUTURE_MONTH_NOT_EXCEEDED_MAX_DAY_OFF'
+          }
+        }
+      } else {
+        refundReason = 'PENDING_REQUEST_NO_REFUND'
+      }
+
+      const canceledDayOff = await tx.dayOff.update({
         where: {
           id: requestId,
         },
@@ -1347,31 +1416,85 @@ exports.deleteDayOff = async (req, res, next) => {
         },
       })
 
-      if (dayOffRequest.status === 'APPROVED') {
-        const maxDayOffPerMonth = Number(
-          employee.position.maxDayOffPerMonth || 0
-        )
-
-        const currentRemaining = Number(employee.remainingDayOffs || 0)
-
-        if (currentRemaining < maxDayOffPerMonth) {
-          await tx.employees.update({
-            where: {
-              id: userId,
+      if (refundedDayOff) {
+        const updatedEmployee = await tx.employees.update({
+          where: {
+            id: userId,
+          },
+          data: {
+            remainingDayOffs: {
+              increment: 1,
             },
-            data: {
-              remainingDayOffs: {
-                increment: 1,
-              },
-            },
-          })
-        }
+          },
+        })
+
+        remainingAfter = Number(updatedEmployee.remainingDayOffs || 0)
+      }
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CANCEL_DAY_OFF',
+          entity: 'DayOff',
+          entityId: dayOffRequest.id,
+
+          actorId: userId,
+          targetEmployeeId: userId,
+          branchId: employee.branchId || employee.branch?.id || null,
+
+          oldValue: {
+            id: dayOffRequest.id,
+            date: toAuditDate(dayOffRequest.date),
+            reason: dayOffRequest.reason || null,
+            status: oldStatus,
+            employeesId: dayOffRequest.employeesId,
+            remainingDayOffs: remainingBefore,
+          },
+
+          newValue: {
+            id: canceledDayOff.id,
+            date: toAuditDate(canceledDayOff.date),
+            reason: canceledDayOff.reason || null,
+            status: canceledDayOff.status,
+            employeesId: canceledDayOff.employeesId,
+
+            refundedDayOff,
+            refundReason,
+            isCurrentMonth,
+            maxDayOffPerMonth,
+            approvedDayOffsInMonth,
+            remainingDayOffsBefore: remainingBefore,
+            remainingDayOffsAfter: remainingAfter,
+          },
+
+          note: `User canceled day off request. Refund: ${refundedDayOff ? 'YES' : 'NO'} (${refundReason})`,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        },
+      })
+
+      return {
+        canceledDayOff,
+        refundedDayOff,
+        refundReason,
+        remainingBefore,
+        remainingAfter,
+        isCurrentMonth,
+        maxDayOffPerMonth,
+        approvedDayOffsInMonth,
       }
     })
 
     res.status(200).json({
       success: true,
       message: 'Day off request canceled successfully',
+      data: {
+        id: result.canceledDayOff.id,
+        status: result.canceledDayOff.status,
+        refundedDayOff: result.refundedDayOff,
+        refundReason: result.refundReason,
+        remainingDayOffsBefore: result.remainingBefore,
+        remainingDayOffsAfter: result.remainingAfter,
+      },
     })
   } catch (error) {
     next(error)
